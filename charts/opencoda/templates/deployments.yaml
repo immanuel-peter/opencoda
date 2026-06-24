@@ -1,0 +1,199 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: opencoda
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coda-controller-manager
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.controllerManager.replicas }}
+  selector:
+    matchLabels:
+      app: coda-controller-manager
+  template:
+    metadata:
+      labels:
+        app: coda-controller-manager
+    spec:
+      {{- with .Values.controlPlane.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: coda-controller-manager
+      containers:
+        - name: manager
+          image: {{ .Values.controllerManager.image }}
+          args:
+            - --garage-endpoint={{ .Values.garage.endpoint }}
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coda-gateway
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: coda-gateway
+  template:
+    metadata:
+      labels:
+        app: coda-gateway
+    spec:
+      {{- with .Values.controlPlane.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: gateway
+          image: {{ .Values.gateway.image }}
+          ports:
+            - containerPort: {{ .Values.gateway.port }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coda-studio
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: coda-studio
+  template:
+    metadata:
+      labels:
+        app: coda-studio
+    spec:
+      {{- with .Values.controlPlane.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: studio
+          image: {{ .Values.studio.image }}
+          ports:
+            - containerPort: {{ .Values.studio.port }}
+          env:
+            - name: CODA_GATEWAY_URL
+              value: http://coda-gateway:{{ .Values.gateway.port }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: coda-node-agent
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: coda-node-agent
+  template:
+    metadata:
+      labels:
+        app: coda-node-agent
+    spec:
+      hostNetwork: false
+      nodeSelector:
+        opencoda.dev/gpu: "true"
+      tolerations:
+        - key: opencoda.io/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: node-agent
+          image: {{ .Values.nodeAgent.image }}
+          securityContext:
+            privileged: true
+---
+{{- if .Values.garage.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garage
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: garage
+  template:
+    metadata:
+      labels:
+        app: garage
+    spec:
+      containers:
+        - name: garage
+          image: dxflrs/garage:v1.0.1
+          ports:
+            - containerPort: 3900
+          env:
+            - name: GARAGE_RPC_SECRET
+              value: "changeme"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: garage
+  ports:
+    - port: 3900
+      targetPort: 3900
+{{- end }}
+---
+{{- if .Values.spegel.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: spegel
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: spegel
+  template:
+    metadata:
+      labels:
+        app: spegel
+    spec:
+      hostNetwork: true
+      nodeSelector:
+        opencoda.dev/gpu: "true"
+      tolerations:
+        - key: opencoda.io/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: spegel
+          image: {{ .Values.spegel.image }}
+          args:
+            - --containerd-registry-config-path=/etc/containerd/certs.d
+            - --containerd-content-path=/var/lib/containerd/io.containerd.content.v1.content
+          volumeMounts:
+            - name: containerd
+              mountPath: /var/lib/containerd
+              readOnly: true
+            - name: certs
+              mountPath: /etc/containerd/certs.d
+              readOnly: true
+      volumes:
+        - name: containerd
+          hostPath:
+            path: /var/lib/containerd
+        - name: certs
+          hostPath:
+            path: /etc/containerd/certs.d
+{{- end }}

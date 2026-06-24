@@ -1,0 +1,55 @@
+namespace: opencoda-system
+
+controllerManager:
+  image: ghcr.io/immanuel-peter/opencoda-controller:latest
+  replicas: 1
+
+gateway:
+  image: ghcr.io/immanuel-peter/opencoda-gateway:latest
+  port: 8090
+
+webhook:
+  image: ghcr.io/immanuel-peter/opencoda-webhook:latest
+
+studio:
+  image: ghcr.io/immanuel-peter/opencoda-studio:latest
+  port: 3000
+
+nodeAgent:
+  image: ghcr.io/immanuel-peter/opencoda-node-agent:latest
+
+garage:
+  enabled: true
+  endpoint: http://garage.opencoda-system.svc:3900
+  bucket: coda-artifacts
+
+registry:
+  url: ghcr.io
+
+providers:
+  aws:
+    enabled: true
+    region: us-east-1
+    credentialsSecret: aws-credentials
+  gcp:
+    enabled: true
+    region: us-central1
+    credentialsSecret: gcp-credentials
+  static:
+    enabled: true
+
+credentials:
+  aws:
+    create: false
+    secretName: aws-credentials
+  gcp:
+    create: false
+    secretName: gcp-credentials
+
+spegel:
+  enabled: true
+  image: ghcr.io/spegel-org/spegel:v0.0.22
+
+controlPlane:
+  nodeSelector:
+    opencoda.dev/control-plane: "true"

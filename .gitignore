@@ -1,0 +1,9 @@
+/bin/
+/dist/
+*.log
+.DS_Store
+studio/node_modules/
+studio/.next/
+studio/pnpm-lock.yaml
+.idea/
+.vscode/

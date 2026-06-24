@@ -1,0 +1,62 @@
+apiVersion: opencoda.dev/v1alpha1
+kind: GPUPool
+metadata:
+  name: onprem-static
+spec:
+  provider:
+    name: static
+  gpu:
+    type: H100
+    perNode: 1
+  limits:
+    maxNodes: 4
+  priority: 5
+---
+apiVersion: opencoda.dev/v1alpha1
+kind: BufferPolicy
+metadata:
+  name: default
+spec:
+  target:
+    mode: static
+    minWarmGPUs: 1
+    maxWarmGPUs: 4
+  pools:
+    - name: onprem-static
+  scaleDown:
+    stabilizationWindow: 10m
+    drainTimeout: 5m
+---
+apiVersion: opencoda.dev/v1alpha1
+kind: CodaEndpoint
+metadata:
+  name: demo-vllm
+  namespace: default
+spec:
+  model:
+    source: hf://TinyLlama/TinyLlama-1.1B-Chat-v1.0
+    quantization: fp16
+  engine:
+    type: vllm
+    version: "0.11"
+  resources:
+    gpu: 1
+    gpuType: H100
+  runtime:
+    class: runc
+  scaling:
+    minReplicas: 0
+    maxReplicas: 4
+    target:
+      metric: concurrency
+      value: 8
+    scaleToZeroAfter: 5m
+  kv:
+    lmcache:
+      enabled: true
+      shared: true
+      tiers: [cpu, nvme, s3]
+      remoteRef:
+        bucket: coda-kv
+        prefix: demo/
+        endpoint: http://garage.opencoda-system.svc:3900

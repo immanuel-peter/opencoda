@@ -1,0 +1,10 @@
+FROM golang:1.26 AS builder
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -o /fakevllm ./test/e2e/fakevllm
+
+FROM gcr.io/distroless/static:nonroot
+COPY --from=builder /fakevllm /fakevllm
+USER nonroot:nonroot
+EXPOSE 8000
+ENTRYPOINT ["/fakevllm"]

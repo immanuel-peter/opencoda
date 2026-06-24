@@ -1,0 +1,6 @@
+domain: opencoda.dev
+layout:
+- go.kubebuilder.io/v4
+projectName: opencoda
+repo: github.com/immanuel-peter/opencoda
+version: "3"

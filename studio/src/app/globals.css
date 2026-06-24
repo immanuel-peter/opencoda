@@ -1,0 +1,31 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: "Syne", system-ui;
+  --font-mono: "JetBrains Mono", monospace;
+  --bg-grid: linear-gradient(#1e2836 1px, transparent 1px),
+    linear-gradient(90deg, #1e2836 1px, transparent 1px);
+}
+
+body {
+  @apply bg-surface text-gray-100 antialiased;
+  background-image: var(--bg-grid);
+  background-size: 24px 24px;
+}
+
+.glow-accent {
+  box-shadow: 0 0 24px var(--tw-shadow-color, #3dd6c340);
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s ease-in-out infinite;
+}

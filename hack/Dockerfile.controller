@@ -1,0 +1,15 @@
+FROM golang:1.26 AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/coda-controller-manager ./cmd/coda-controller-manager
+RUN CGO_ENABLED=0 go build -o /out/coda-gateway ./cmd/coda-gateway
+RUN CGO_ENABLED=0 go build -o /out/coda-webhook ./cmd/coda-webhook
+RUN CGO_ENABLED=0 go build -o /out/coda-node-agent ./cmd/coda-node-agent
+RUN CGO_ENABLED=0 go build -o /out/coda ./cmd/coda
+
+FROM gcr.io/distroless/static:nonroot
+COPY --from=builder /out/coda-controller-manager /manager
+USER 65532:65532
+ENTRYPOINT ["/manager"]
