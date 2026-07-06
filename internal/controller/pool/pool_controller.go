@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -73,6 +74,24 @@ func (r *Reconciler) reconcileNodeRecords(ctx context.Context, pool *opencodav1a
 	nodeByName := make(map[string]corev1.Node, len(nodes.Items))
 	for _, n := range nodes.Items {
 		nodeByName[n.Name] = n
+	}
+
+	known := make(map[string]struct{}, len(pool.Status.NodeRecords))
+	for _, rec := range pool.Status.NodeRecords {
+		if rec.NodeName != "" {
+			known[rec.NodeName] = struct{}{}
+		}
+	}
+	for name := range nodeByName {
+		if _, ok := known[name]; ok {
+			continue
+		}
+		pool.Status.NodeRecords = append(pool.Status.NodeRecords, opencodav1alpha1.NodeRecord{
+			ProviderID: fmt.Sprintf("static://%s/%s", pool.Name, name),
+			NodeName:   name,
+			State:      "discovered",
+			PoolName:   pool.Name,
+		})
 	}
 
 	active, buffered, provisioning := 0, 0, 0

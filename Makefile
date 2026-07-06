@@ -50,6 +50,10 @@ e2e-aws:
 e2e-eks:
 	chmod +x hack/e2e-eks.sh && ./hack/e2e-eks.sh
 
+.PHONY: e2e-eks-gpu
+e2e-eks-gpu:
+	chmod +x hack/e2e-eks-gpu.sh && ./hack/e2e-eks-gpu.sh
+
 .PHONY: docker-build
 docker-build:
 	docker build -t $(REGISTRY)/coda-controller-manager:latest -f hack/Dockerfile.controller .

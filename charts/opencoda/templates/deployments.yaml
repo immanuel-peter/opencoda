@@ -34,6 +34,10 @@ spec:
             - name: CODA_JOIN_TOKEN
               value: {{ .Values.controllerManager.joinToken | quote }}
             {{- end }}
+            {{- if .Values.controllerManager.engineImage }}
+            - name: CODA_ENGINE_IMAGE
+              value: {{ .Values.controllerManager.engineImage | quote }}
+            {{- end }}
           ports:
             - name: metrics
               containerPort: 8080

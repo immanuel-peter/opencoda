@@ -13,6 +13,8 @@ cd "$ROOT"
 : "${HELM_RELEASE:=opencoda}"
 : "${BUILD_IMAGES:=0}"
 : "${GHCR_USER:=immanuel-peter}"
+: "${CODA_ENGINE_IMAGE:-}"
+: "${CODA_E2E_FIXTURE:=minimal.yaml}"
 
 SPOT_MODE=0
 while [[ $# -gt 0 ]]; do
@@ -75,6 +77,9 @@ HELM_SET=(
   --set studio.enabled=false
   --set nodeAgent.enabled=false
 )
+if [[ -n "$CODA_ENGINE_IMAGE" ]]; then
+  HELM_SET+=(--set controllerManager.engineImage="$CODA_ENGINE_IMAGE")
+fi
 if kubectl -n "$CODA_NAMESPACE" get secret ghcr-credentials >/dev/null 2>&1; then
   HELM_SET+=(--set-json 'imagePullSecrets=[{"name":"ghcr-credentials"}]')
 fi
@@ -96,8 +101,8 @@ kubectl -n "$CODA_NAMESPACE" rollout restart deployment/coda-controller-manager 
 kubectl -n "$CODA_NAMESPACE" rollout status deployment/coda-controller-manager --timeout=300s
 kubectl -n "$CODA_NAMESPACE" rollout status deployment/coda-gateway --timeout=300s
 
-echo "==> applying fixtures"
-kubectl apply -f "$ROOT/test/e2e/fixtures/minimal.yaml"
+echo "==> applying fixtures (${CODA_E2E_FIXTURE})"
+kubectl apply -f "$ROOT/test/e2e/fixtures/${CODA_E2E_FIXTURE}"
 if [[ "$SPOT_MODE" == "1" ]]; then
   kubectl apply -f "$ROOT/test/e2e/fixtures/aws-spot-pool.yaml"
 fi

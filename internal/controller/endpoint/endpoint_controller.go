@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,7 +42,7 @@ type Reconciler struct {
 
 func NewReconciler(c client.Client, scheme *runtime.Scheme, garageEndpoint string) *Reconciler {
 	engines := engine.NewRegistry()
-	engines.Register(vllm.New(""))
+	engines.Register(vllm.New(os.Getenv("CODA_ENGINE_IMAGE")))
 
 	kvReg := kv.NewRegistry()
 	kvReg.Register(lmcache.New(garageEndpoint))
@@ -243,6 +245,8 @@ func (r *Reconciler) buildPod(ep *opencodav1alpha1.CodaEndpoint, index int, spec
 		}
 	}
 
+	r.applyGPUScheduling(ep, podSpec)
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-replica-%d", ep.Name, index),
@@ -258,6 +262,35 @@ func (r *Reconciler) buildPod(ep *opencodav1alpha1.CodaEndpoint, index int, spec
 		Spec: *podSpec,
 	}
 	return pod, nil
+}
+
+func (r *Reconciler) applyGPUScheduling(ep *opencodav1alpha1.CodaEndpoint, podSpec *corev1.PodSpec) {
+	if ep.Spec.Resources.GPU <= 0 {
+		return
+	}
+	if podSpec.NodeSelector == nil {
+		podSpec.NodeSelector = map[string]string{}
+	}
+	podSpec.NodeSelector[constants.LabelGPU] = "true"
+	podSpec.Tolerations = append(podSpec.Tolerations, corev1.Toleration{
+		Key:      "opencoda.io/gpu",
+		Operator: corev1.TolerationOpExists,
+		Effect:   corev1.TaintEffectNoSchedule,
+	})
+	gpuQty := resource.MustParse(strconv.Itoa(ep.Spec.Resources.GPU))
+	for i := range podSpec.Containers {
+		if podSpec.Containers[i].Name != "vllm" {
+			continue
+		}
+		if podSpec.Containers[i].Resources.Limits == nil {
+			podSpec.Containers[i].Resources.Limits = corev1.ResourceList{}
+		}
+		if podSpec.Containers[i].Resources.Requests == nil {
+			podSpec.Containers[i].Resources.Requests = corev1.ResourceList{}
+		}
+		podSpec.Containers[i].Resources.Limits[corev1.ResourceName("nvidia.com/gpu")] = gpuQty
+		podSpec.Containers[i].Resources.Requests[corev1.ResourceName("nvidia.com/gpu")] = gpuQty
+	}
 }
 
 func (r *Reconciler) selectKV(ep *opencodav1alpha1.CodaEndpoint) kv.KVProvider {

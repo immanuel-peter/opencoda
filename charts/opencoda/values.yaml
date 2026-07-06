@@ -9,6 +9,7 @@ controllerManager:
   replicas: 1
   fakeHealth: false
   joinToken: ""
+  engineImage: ""
 
 gateway:
   image: ghcr.io/immanuel-peter/opencoda/coda-gateway:latest

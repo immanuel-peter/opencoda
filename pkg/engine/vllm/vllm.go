@@ -70,11 +70,9 @@ func (e *Engine) RenderPodSpec(ep *opencodav1alpha1.CodaEndpoint, node engine.No
 	env = append(env, kvPatch.Env...)
 
 	container := corev1.Container{
-		Name:    "vllm",
-		Image:   e.Image,
-		Command: []string{"vllm"},
-		Args:    args,
-		Env:     env,
+		Name:  "vllm",
+		Image: e.Image,
+		Env:   env,
 		Ports: []corev1.ContainerPort{{
 			Name:          "http",
 			ContainerPort: int32(defaultPort),
@@ -82,8 +80,12 @@ func (e *Engine) RenderPodSpec(ep *opencodav1alpha1.CodaEndpoint, node engine.No
 		Resources: corev1.ResourceRequirements{
 			Limits: corev1.ResourceList{},
 		},
-		VolumeMounts: kvPatch.VolumeMounts,
+		VolumeMounts:   kvPatch.VolumeMounts,
 		ReadinessProbe: e.ReadinessProbe(),
+	}
+	if !strings.Contains(strings.ToLower(e.Image), "fakevllm") {
+		container.Command = []string{"vllm"}
+		container.Args = args
 	}
 
 	spec := &corev1.PodSpec{

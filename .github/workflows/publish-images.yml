@@ -46,3 +46,11 @@ jobs:
               file: hack/Dockerfile.studio
               push: true
               tags: ghcr.io/immanuel-peter/opencoda/coda-studio:latest
+
+          - name: coda-fakevllm
+            uses: docker/build-push-action@v6
+            with:
+              context: .
+              file: hack/Dockerfile.fakevllm
+              push: true
+              tags: ghcr.io/immanuel-peter/opencoda/coda-fakevllm:latest

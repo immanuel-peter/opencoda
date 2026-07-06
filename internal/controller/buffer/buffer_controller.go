@@ -15,7 +15,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	opencodav1alpha1 "github.com/immanuel-peter/opencoda/api/v1alpha1"
+	"github.com/immanuel-peter/opencoda/internal/constants"
 	"github.com/immanuel-peter/opencoda/pkg/capacity"
+	"github.com/immanuel-peter/opencoda/pkg/capacity/static"
 	"github.com/immanuel-peter/opencoda/pkg/scheduler"
 	"github.com/immanuel-peter/opencoda/pkg/scheduler/greedy"
 )
@@ -161,6 +163,14 @@ func (r *Reconciler) provisionPool(ctx context.Context, policy *opencodav1alpha1
 	}
 	if !r.spendAllowed(&pool, count) {
 		return fmt.Errorf("maxHourlyUSD ceiling for pool %s", poolName)
+	}
+	if pool.Spec.Provider.Name == static.ProviderName {
+		var nodes corev1.NodeList
+		if err := r.List(ctx, &nodes, client.MatchingLabels{constants.LabelPool: poolName}); err == nil {
+			if len(nodes.Items) >= count {
+				return nil
+			}
+		}
 	}
 	provider, err := r.Providers.ForPool(ctx, &pool)
 	if err != nil {
