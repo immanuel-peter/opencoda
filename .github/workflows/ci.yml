@@ -49,8 +49,7 @@ jobs:
         run: |
           chmod +x hack/ci-deps.sh
           ./hack/ci-deps.sh e2e
-      - name: Build kind test images
-        parallel:
+      - parallel:
           - name: controller
             run: docker build -t opencoda-controller:latest -f hack/Dockerfile.controller .
           - name: fakevllm
