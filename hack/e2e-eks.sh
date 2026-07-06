@@ -91,15 +91,16 @@ helm upgrade --install "$HELM_RELEASE" "$ROOT/charts/opencoda" \
   "${HELM_SET[@]}" \
   --wait --timeout 10m
 
+# Recycle pods so new pulls pick up ghcr-credentials (Helm --wait can stall on pre-secret pods).
+kubectl -n "$CODA_NAMESPACE" rollout restart deployment/coda-controller-manager deployment/coda-gateway
+kubectl -n "$CODA_NAMESPACE" rollout status deployment/coda-controller-manager --timeout=300s
+kubectl -n "$CODA_NAMESPACE" rollout status deployment/coda-gateway --timeout=300s
+
 echo "==> applying fixtures"
 kubectl apply -f "$ROOT/test/e2e/fixtures/minimal.yaml"
 if [[ "$SPOT_MODE" == "1" ]]; then
   kubectl apply -f "$ROOT/test/e2e/fixtures/aws-spot-pool.yaml"
 fi
-
-echo "==> waiting for control plane pods"
-kubectl -n "$CODA_NAMESPACE" rollout status deployment/coda-controller-manager --timeout=300s
-kubectl -n "$CODA_NAMESPACE" rollout status deployment/coda-gateway --timeout=300s
 
 echo "==> buffer reconcile window (pool=${CODA_POOL})"
 sleep 120
