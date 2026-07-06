@@ -54,6 +54,10 @@ e2e-eks:
 docker-build:
 	docker build -t $(REGISTRY)/coda-controller-manager:latest -f hack/Dockerfile.controller .
 
+.PHONY: docker-push-controller
+docker-push-controller: docker-build
+	docker push $(REGISTRY)/coda-controller-manager:latest
+
 .PHONY: docker-build-gateway
 docker-build-gateway:
 	docker build -t $(REGISTRY)/coda-gateway:latest -f hack/Dockerfile.gateway .

@@ -12,6 +12,7 @@ cd "$ROOT"
 : "${CODA_FAKE_HEALTH:=1}"
 : "${HELM_RELEASE:=opencoda}"
 : "${BUILD_IMAGES:=0}"
+: "${GHCR_USER:=immanuel-peter}"
 
 SPOT_MODE=0
 while [[ $# -gt 0 ]]; do
@@ -39,33 +40,56 @@ CONTROLLER_IMAGE="${CONTROLLER_IMAGE:-ghcr.io/immanuel-peter/opencoda/coda-contr
 GATEWAY_IMAGE="${GATEWAY_IMAGE:-ghcr.io/immanuel-peter/opencoda/coda-gateway:latest}"
 
 if [[ "$BUILD_IMAGES" == "1" ]]; then
-  echo "==> building and loading controller image locally (requires docker + cluster pull access)"
+  echo "==> building controller image locally"
   docker build -t "$CONTROLLER_IMAGE" -f hack/Dockerfile.controller .
-  GATEWAY_IMAGE="$CONTROLLER_IMAGE"
+  echo "==> push ${CONTROLLER_IMAGE} before running on EKS (or make GHCR packages public)"
 fi
 
-echo "==> installing OpenCoda via Helm"
-helm upgrade --install "$HELM_RELEASE" "$ROOT/charts/opencoda" \
-  --namespace "$CODA_NAMESPACE" --create-namespace \
-  --set controllerManager.image="$CONTROLLER_IMAGE" \
-  --set gateway.image="$GATEWAY_IMAGE" \
-  --wait --timeout 10m
+ensure_ghcr_pull_secret() {
+  local token="${GHCR_TOKEN:-${GITHUB_TOKEN:-}}"
+  if [[ -z "$token" ]] && command -v gh >/dev/null 2>&1; then
+    token="$(gh auth token 2>/dev/null || true)"
+  fi
+  if [[ -z "$token" ]]; then
+    echo "==> no GHCR_TOKEN set; assuming GHCR packages are public"
+    return 0
+  fi
+  echo "==> configuring GHCR pull secret in ${CODA_NAMESPACE}"
+  kubectl create namespace "$CODA_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create secret docker-registry ghcr-credentials \
+    --docker-server=ghcr.io \
+    --docker-username="$GHCR_USER" \
+    --docker-password="$token" \
+    -n "$CODA_NAMESPACE" \
+    --dry-run=client -o yaml | kubectl apply -f -
+}
 
-echo "==> controller env for e2e"
-kubectl -n "$CODA_NAMESPACE" set env deployment/coda-controller-manager \
-  CODA_FAKE_HEALTH="$CODA_FAKE_HEALTH" >/dev/null
-if [[ -n "${CODA_JOIN_TOKEN:-}" ]]; then
-  kubectl -n "$CODA_NAMESPACE" set env deployment/coda-controller-manager \
-    CODA_JOIN_TOKEN="$CODA_JOIN_TOKEN" >/dev/null
+ensure_ghcr_pull_secret
+
+HELM_SET=(
+  --set controllerManager.image="$CONTROLLER_IMAGE"
+  --set gateway.image="$GATEWAY_IMAGE"
+  --set controllerManager.fakeHealth="$CODA_FAKE_HEALTH"
+  --set garage.enabled=false
+  --set spegel.enabled=false
+  --set studio.enabled=false
+  --set nodeAgent.enabled=false
+)
+if kubectl -n "$CODA_NAMESPACE" get secret ghcr-credentials >/dev/null 2>&1; then
+  HELM_SET+=(--set-json 'imagePullSecrets=[{"name":"ghcr-credentials"}]')
 fi
 
 echo "==> installing CRDs"
 kubectl apply -f "$ROOT/config/crd/bases/"
-
-echo "==> waiting for CRDs"
 kubectl wait --for=condition=established crd/gpupools.opencoda.dev --timeout=180s
 kubectl wait --for=condition=established crd/bufferpolicies.opencoda.dev --timeout=180s
 kubectl wait --for=condition=established crd/codaendpoints.opencoda.dev --timeout=180s
+
+echo "==> installing OpenCoda via Helm"
+helm upgrade --install "$HELM_RELEASE" "$ROOT/charts/opencoda" \
+  --namespace "$CODA_NAMESPACE" --create-namespace \
+  "${HELM_SET[@]}" \
+  --wait --timeout 10m
 
 echo "==> applying fixtures"
 kubectl apply -f "$ROOT/test/e2e/fixtures/minimal.yaml"

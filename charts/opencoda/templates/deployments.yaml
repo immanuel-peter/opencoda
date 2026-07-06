@@ -13,6 +13,7 @@ spec:
       labels:
         app: coda-controller-manager
     spec:
+      {{- include "opencoda.imagePullSecrets" . | nindent 6 }}
       {{- with .Values.controlPlane.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -54,6 +55,7 @@ spec:
       labels:
         app: coda-gateway
     spec:
+      {{- include "opencoda.imagePullSecrets" . | nindent 6 }}
       {{- with .Values.controlPlane.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -67,6 +69,7 @@ spec:
           ports:
             - containerPort: {{ .Values.gateway.port }}
 ---
+{{- if .Values.studio.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -82,6 +85,7 @@ spec:
       labels:
         app: coda-studio
     spec:
+      {{- include "opencoda.imagePullSecrets" . | nindent 6 }}
       {{- with .Values.controlPlane.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -95,7 +99,9 @@ spec:
           env:
             - name: CODA_GATEWAY_URL
               value: http://coda-gateway:{{ .Values.gateway.port }}
+{{- end }}
 ---
+{{- if .Values.nodeAgent.enabled }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -110,6 +116,7 @@ spec:
       labels:
         app: coda-node-agent
     spec:
+      {{- include "opencoda.imagePullSecrets" . | nindent 6 }}
       hostNetwork: false
       nodeSelector:
         opencoda.dev/gpu: "true"
@@ -122,6 +129,7 @@ spec:
           image: {{ .Values.nodeAgent.image }}
           securityContext:
             privileged: true
+{{- end }}
 ---
 {{- if .Values.garage.enabled }}
 apiVersion: apps/v1

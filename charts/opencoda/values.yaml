@@ -2,6 +2,8 @@ namespace: opencoda-system
 
 imageRegistry: ghcr.io/immanuel-peter/opencoda
 
+imagePullSecrets: []
+
 controllerManager:
   image: ghcr.io/immanuel-peter/opencoda/coda-controller-manager:latest
   replicas: 1
@@ -17,10 +19,12 @@ webhook:
   image: ghcr.io/immanuel-peter/opencoda/coda-webhook:latest
 
 studio:
+  enabled: true
   image: ghcr.io/immanuel-peter/opencoda/coda-studio:latest
   port: 3000
 
 nodeAgent:
+  enabled: true
   image: ghcr.io/immanuel-peter/opencoda/coda-node-agent:latest
 
 garage:
