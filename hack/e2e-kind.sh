@@ -17,6 +17,9 @@ helm upgrade --install opencoda "$ROOT/charts/opencoda" \
   --set gateway.image=opencoda-controller:latest \
   --set providers.static.enabled=true
 
+echo "==> installing CRDs"
+kubectl apply -f "$ROOT/config/crd/bases/"
+
 kubectl apply -f "$ROOT/test/e2e/fixtures/minimal.yaml"
 kubectl wait --for=condition=established crd/gpupools.opencoda.dev --timeout=120s || true
 

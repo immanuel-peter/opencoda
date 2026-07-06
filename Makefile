@@ -1,6 +1,6 @@
 # Image URL to use all building/pushing image targets
 IMG ?= opencoda:latest
-REGISTRY ?= ghcr.io/immanuel-peter
+REGISTRY ?= ghcr.io/immanuel-peter/opencoda
 
 # Tool versions
 CONTROLLER_GEN_VERSION ?= v0.21.0
@@ -46,9 +46,29 @@ e2e-kind:
 e2e-aws:
 	chmod +x hack/e2e-aws.sh && ./hack/e2e-aws.sh
 
+.PHONY: e2e-eks
+e2e-eks:
+	chmod +x hack/e2e-eks.sh && ./hack/e2e-eks.sh
+
 .PHONY: docker-build
 docker-build:
-	docker build -t $(IMG) -f hack/Dockerfile.controller .
+	docker build -t $(REGISTRY)/coda-controller-manager:latest -f hack/Dockerfile.controller .
+
+.PHONY: docker-build-gateway
+docker-build-gateway:
+	docker build -t $(REGISTRY)/coda-gateway:latest -f hack/Dockerfile.gateway .
+
+.PHONY: docker-build-studio
+docker-build-studio:
+	docker build -t $(REGISTRY)/coda-studio:latest -f hack/Dockerfile.studio .
+
+.PHONY: docker-push-gateway
+docker-push-gateway: docker-build-gateway
+	docker push $(REGISTRY)/coda-gateway:latest
+
+.PHONY: docker-push-studio
+docker-push-studio: docker-build-studio
+	docker push $(REGISTRY)/coda-studio:latest
 
 .PHONY: helm-package
 helm-package:

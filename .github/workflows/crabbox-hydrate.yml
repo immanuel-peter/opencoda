@@ -1,0 +1,108 @@
+# Hydration workflow for Crabbox (crabbox actions hydrate / job run).
+# Installs Go + cluster tooling on a leased runner before OpenCoda test jobs run.
+name: Crabbox Hydrate
+
+on:
+  workflow_dispatch:
+    inputs:
+      crabbox_id:
+        required: true
+        type: string
+      crabbox_runner_label:
+        required: true
+        type: string
+      crabbox_job:
+        required: false
+        default: hydrate
+        type: string
+      crabbox_keep_alive_minutes:
+        required: false
+        default: "90"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  hydrate:
+    runs-on: [self-hosted, "${{ inputs.crabbox_runner_label }}"]
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install cluster tooling
+        shell: bash
+        run: |
+          chmod +x hack/ci-deps.sh
+          ./hack/ci-deps.sh all
+
+      - name: Record hydrate state
+        shell: bash
+        env:
+          CRABBOX_ID: ${{ inputs.crabbox_id }}
+          CRABBOX_JOB: ${{ inputs.crabbox_job }}
+        run: |
+          case "$CRABBOX_ID" in
+            ""|*[!A-Za-z0-9_-]*)
+              echo "::error::crabbox_id must match [A-Za-z0-9_-]+"
+              exit 2
+              ;;
+          esac
+          case "$CRABBOX_JOB" in
+            *$'\n'*|*$'\r'*)
+              echo "::error::crabbox_job must not contain line breaks"
+              exit 2
+              ;;
+          esac
+          job="$CRABBOX_JOB"
+          [ -n "$job" ] || job=hydrate
+          mkdir -p "$HOME/.crabbox/actions"
+          state="$HOME/.crabbox/actions/${CRABBOX_ID}.env"
+          env_file="$HOME/.crabbox/actions/${CRABBOX_ID}.env.sh"
+          services_file="$HOME/.crabbox/actions/${CRABBOX_ID}.services"
+          {
+            echo "export GITHUB_WORKSPACE=$(printf '%q' "$GITHUB_WORKSPACE")"
+            echo "export GITHUB_RUN_ID=$(printf '%q' "$GITHUB_RUN_ID")"
+            echo "export GITHUB_JOB=$(printf '%q' "$job")"
+            echo "export RUNNER_TEMP=$(printf '%q' "$RUNNER_TEMP")"
+            echo "export RUNNER_TOOL_CACHE=$(printf '%q' "$RUNNER_TOOL_CACHE")"
+            echo "export PATH=$(printf '%q' "$PATH")"
+          } > "$env_file"
+          {
+            echo "WORKSPACE=${GITHUB_WORKSPACE}"
+            echo "RUN_ID=${GITHUB_RUN_ID}"
+            echo "JOB=${job}"
+            echo "ENV_FILE=${env_file}"
+            echo "SERVICES_FILE=${services_file}"
+            echo "READY_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > "${state}.tmp"
+          mv "${state}.tmp" "$state"
+
+      - name: Keep alive for Crabbox commands
+        shell: bash
+        env:
+          CRABBOX_ID: ${{ inputs.crabbox_id }}
+          CRABBOX_KEEP_ALIVE_MINUTES: ${{ inputs.crabbox_keep_alive_minutes }}
+        run: |
+          case "$CRABBOX_ID" in
+            ""|*[!A-Za-z0-9_-]*)
+              echo "::error::crabbox_id must match [A-Za-z0-9_-]+"
+              exit 2
+              ;;
+          esac
+          minutes="$CRABBOX_KEEP_ALIVE_MINUTES"
+          case "$minutes" in ''|*[!0-9]*) minutes=90 ;; esac
+          stop="$HOME/.crabbox/actions/${CRABBOX_ID}.stop"
+          deadline=$(( $(date +%s) + minutes * 60 ))
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            [ -f "$stop" ] && exit 0
+            sleep 15
+          done

@@ -1,0 +1,56 @@
+# Minimal CI mirror of .crabbox.yaml jobs (runs on GitHub-hosted runners).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install controller-gen
+        run: make generate manifests
+      - run: make build test
+
+  vet:
+    name: vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go vet ./...
+
+  e2e-kind:
+    name: e2e-kind
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install cluster tooling
+        run: |
+          chmod +x hack/ci-deps.sh
+          ./hack/ci-deps.sh e2e
+      - name: Run kind e2e
+        env:
+          CODA_E2E: "1"
+          CODA_FAKE_HEALTH: "1"
+        run: make e2e-kind

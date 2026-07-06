@@ -28,8 +28,18 @@ spec:
       containers:
         - name: manager
           image: {{ .Values.controllerManager.image }}
+          imagePullPolicy: IfNotPresent
           args:
             - --garage-endpoint={{ .Values.garage.endpoint }}
+          env:
+            {{- if .Values.controllerManager.fakeHealth }}
+            - name: CODA_FAKE_HEALTH
+              value: "1"
+            {{- end }}
+            {{- if .Values.controllerManager.joinToken }}
+            - name: CODA_JOIN_TOKEN
+              value: {{ .Values.controllerManager.joinToken | quote }}
+            {{- end }}
           ports:
             - name: metrics
               containerPort: 8080
@@ -58,6 +68,9 @@ spec:
       containers:
         - name: gateway
           image: {{ .Values.gateway.image }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - -addr=:{{ .Values.gateway.port }}
           ports:
             - containerPort: {{ .Values.gateway.port }}
 ---
@@ -83,6 +96,7 @@ spec:
       containers:
         - name: studio
           image: {{ .Values.studio.image }}
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: {{ .Values.studio.port }}
           env:

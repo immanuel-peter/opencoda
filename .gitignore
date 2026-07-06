@@ -1,5 +1,8 @@
 /bin/
 /dist/
+.env
+.env.*
+!.env.example
 *.log
 .DS_Store
 studio/node_modules/
@@ -7,3 +10,4 @@ studio/.next/
 studio/pnpm-lock.yaml
 .idea/
 .vscode/
+tmp/

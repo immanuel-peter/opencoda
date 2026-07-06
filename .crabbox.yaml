@@ -1,0 +1,131 @@
+# OpenCoda remote CI / E2E jobs for Crabbox.
+# Run: crabbox job list && crabbox job run unit
+# Secrets: crabbox run --env-from-profile ~/.config/opencoda/e2e.env --allow-env ...
+
+profile: opencoda-ci
+class: standard
+
+capacity:
+  market: spot
+  strategy: most-available
+  fallback: on-demand-after-120s
+
+env:
+  allow:
+    - CI
+    - AWS_ACCESS_KEY_ID
+    - AWS_SECRET_ACCESS_KEY
+    - AWS_SESSION_TOKEN
+    - AWS_REGION
+    - EKS_CLUSTER_NAME
+    - CODA_JOIN_TOKEN
+    - CODA_E2E
+    - CODA_FAKE_HEALTH
+    - CODA_POOL
+    - CODA_NAMESPACE
+    - BUILD_IMAGES
+    - CONTROLLER_IMAGE
+    - GATEWAY_IMAGE
+
+sync:
+  delete: true
+  fingerprint: true
+  exclude:
+    - bin/
+    - dist/
+    - studio/node_modules/
+    - studio/.next/
+    - .git/
+
+actions:
+  workflow: .github/workflows/crabbox-hydrate.yml
+  job: hydrate
+  runnerLabels:
+    - crabbox
+  runnerVersion: latest
+  ephemeral: true
+
+jobs:
+  unit:
+    hydrate:
+      actions: true
+      waitTimeout: 25m
+    shell: true
+    command: make generate manifests build test
+    stop: auto
+    label: opencoda unit
+
+  vet:
+    hydrate:
+      actions: true
+      waitTimeout: 20m
+    shell: true
+    command: go vet ./...
+    stop: auto
+    label: opencoda vet
+
+  all:
+    hydrate:
+      actions: true
+      waitTimeout: 25m
+    shell: true
+    command: make all
+    stop: auto
+    label: opencoda all
+
+  e2e-kind:
+    provider: aws
+    class: standard
+    idleTimeout: 90m
+    hydrate:
+      actions: true
+      waitTimeout: 35m
+    shell: true
+    command: |
+      set -euo pipefail
+      export CODA_E2E=1 CODA_FAKE_HEALTH=1
+      make e2e-kind
+    stop: always
+    label: opencoda e2e-kind
+
+  e2e-eks:
+    provider: aws
+    class: standard
+    idleTimeout: 120m
+    hydrate:
+      actions: true
+      waitTimeout: 35m
+    shell: true
+    command: |
+      set -euo pipefail
+      export CODA_FAKE_HEALTH=1
+      ./hack/e2e-eks.sh
+    stop: auto
+    label: opencoda e2e-eks static
+
+  e2e-eks-spot:
+    provider: aws
+    class: standard
+    idleTimeout: 180m
+    hydrate:
+      actions: true
+      waitTimeout: 35m
+    shell: true
+    command: |
+      set -euo pipefail
+      export CODA_FAKE_HEALTH=0
+      ./hack/e2e-eks.sh --spot
+    stop: auto
+    label: opencoda e2e-eks spot
+
+  e2e-aws:
+    provider: aws
+    class: standard
+    idleTimeout: 180m
+    hydrate:
+      actions: true
+      waitTimeout: 35m
+    shell: true
+    command: make e2e-aws
+    stop: auto
+    label: opencoda e2e-aws

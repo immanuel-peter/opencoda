@@ -1,22 +1,27 @@
 namespace: opencoda-system
 
+imageRegistry: ghcr.io/immanuel-peter/opencoda
+
 controllerManager:
-  image: ghcr.io/immanuel-peter/opencoda-controller:latest
+  image: ghcr.io/immanuel-peter/opencoda/coda-controller-manager:latest
   replicas: 1
+  fakeHealth: false
+  joinToken: ""
 
 gateway:
-  image: ghcr.io/immanuel-peter/opencoda-gateway:latest
+  image: ghcr.io/immanuel-peter/opencoda/coda-gateway:latest
   port: 8090
+  serviceType: LoadBalancer
 
 webhook:
-  image: ghcr.io/immanuel-peter/opencoda-webhook:latest
+  image: ghcr.io/immanuel-peter/opencoda/coda-webhook:latest
 
 studio:
-  image: ghcr.io/immanuel-peter/opencoda-studio:latest
+  image: ghcr.io/immanuel-peter/opencoda/coda-studio:latest
   port: 3000
 
 nodeAgent:
-  image: ghcr.io/immanuel-peter/opencoda-node-agent:latest
+  image: ghcr.io/immanuel-peter/opencoda/coda-node-agent:latest
 
 garage:
   enabled: true
@@ -24,7 +29,7 @@ garage:
   bucket: coda-artifacts
 
 registry:
-  url: ghcr.io
+  url: ghcr.io/immanuel-peter/opencoda
 
 providers:
   aws:

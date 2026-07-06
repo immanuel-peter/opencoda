@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Scripted live AWS spot validation — run with AWS credentials and EKS cluster configured.
+# Live AWS spot validation on an existing EKS cluster.
+# Requires: EKS_CLUSTER_NAME, AWS credentials, aws-credentials secret in cluster.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 : "${AWS_REGION:=us-east-1}"
-: "${CODA_POOL:=aws-spot}"
+: "${EKS_CLUSTER_NAME:?set EKS_CLUSTER_NAME}"
 
-kubectl apply -f "$ROOT/test/e2e/fixtures/minimal.yaml"
-echo "Waiting for buffer provision on pool $CODA_POOL..."
-sleep 120
-echo "Measure cold start: curl gateway /v1/chat/completions with CodaToken"
-echo "kubectl -n opencoda-system logs deploy/opencoda-gateway"
+exec "$ROOT/hack/e2e-eks.sh" --spot "$@"

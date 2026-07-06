@@ -1,0 +1,37 @@
+apiVersion: opencoda.dev/v1alpha1
+kind: GPUPool
+metadata:
+  name: aws-spot
+spec:
+  provider:
+    name: aws
+    credentialsRef:
+      secretName: aws-credentials
+    params:
+      region: us-east-1
+      capacityType: spot
+      subnets: ""  # set to comma-separated subnet IDs for your VPC
+  instanceTypes:
+    - g5.xlarge
+  gpu:
+    type: A10G
+    perNode: 1
+  limits:
+    maxNodes: 2
+    maxHourlyUSD: 5
+  priority: 10
+---
+apiVersion: opencoda.dev/v1alpha1
+kind: BufferPolicy
+metadata:
+  name: aws-spot
+spec:
+  target:
+    mode: static
+    minWarmGPUs: 0
+    maxWarmGPUs: 2
+  pools:
+    - name: aws-spot
+  scaleDown:
+    stabilizationWindow: 5m
+    drainTimeout: 3m
