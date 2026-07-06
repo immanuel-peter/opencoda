@@ -6,7 +6,7 @@ Apache-2.0 control plane for serverless GPU inference on infrastructure you own.
 
 ```bash
 make generate manifests build test
-helm upgrade --install opencoda charts/opencoda -n opencoda-system
+helm upgrade --install opencoda charts/opencoda -n opencoda-system --create-namespace
 kubectl apply -f test/e2e/fixtures/minimal.yaml
 ```
 

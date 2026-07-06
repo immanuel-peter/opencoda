@@ -21,9 +21,9 @@ kind load docker-image opencoda-fakevllm:latest --name opencoda-e2e
 
 kubectl label node --all opencoda.dev/control-plane=true --overwrite
 
-# Chart templates include a Namespace; do not combine with --create-namespace.
+# Namespace is created by Helm via --create-namespace (not a chart resource).
 helm upgrade --install opencoda "$ROOT/charts/opencoda" \
-  --namespace opencoda-system \
+  --namespace opencoda-system --create-namespace \
   --set controllerManager.image=opencoda-controller:latest \
   --set gateway.image=opencoda-controller:latest \
   --set controllerManager.fakeHealth=true \

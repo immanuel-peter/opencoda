@@ -46,7 +46,7 @@ fi
 
 echo "==> installing OpenCoda via Helm"
 helm upgrade --install "$HELM_RELEASE" "$ROOT/charts/opencoda" \
-  --namespace "$CODA_NAMESPACE" \
+  --namespace "$CODA_NAMESPACE" --create-namespace \
   --set controllerManager.image="$CONTROLLER_IMAGE" \
   --set gateway.image="$GATEWAY_IMAGE" \
   --wait --timeout 10m
