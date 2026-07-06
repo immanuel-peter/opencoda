@@ -1,0 +1,37 @@
+name: Publish images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: gateway + studio
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: hack/Dockerfile.gateway
+          push: true
+          tags: ghcr.io/immanuel-peter/opencoda/coda-gateway:latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: hack/Dockerfile.studio
+          push: true
+          tags: ghcr.io/immanuel-peter/opencoda/coda-studio:latest
