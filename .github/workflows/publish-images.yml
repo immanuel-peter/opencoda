@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   publish:
-    name: gateway + studio
+    name: opencoda images
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +23,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - parallel:
+          - name: coda-controller-manager
+            uses: docker/build-push-action@v6
+            with:
+              context: .
+              file: hack/Dockerfile.controller
+              push: true
+              tags: ghcr.io/immanuel-peter/opencoda/coda-controller-manager:latest
+
           - name: coda-gateway
             uses: docker/build-push-action@v6
             with:
