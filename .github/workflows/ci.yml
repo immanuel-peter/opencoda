@@ -49,8 +49,15 @@ jobs:
         run: |
           chmod +x hack/ci-deps.sh
           ./hack/ci-deps.sh e2e
+      - name: Build kind test images
+        parallel:
+          - name: controller
+            run: docker build -t opencoda-controller:latest -f hack/Dockerfile.controller .
+          - name: fakevllm
+            run: docker build -t opencoda-fakevllm:latest -f hack/Dockerfile.fakevllm .
       - name: Run kind e2e
         env:
           CODA_E2E: "1"
           CODA_FAKE_HEALTH: "1"
+          CODA_SKIP_DOCKER_BUILD: "1"
         run: make e2e-kind

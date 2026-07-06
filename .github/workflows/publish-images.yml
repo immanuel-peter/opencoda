@@ -22,16 +22,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: hack/Dockerfile.gateway
-          push: true
-          tags: ghcr.io/immanuel-peter/opencoda/coda-gateway:latest
+      - name: Build and push images
+        parallel:
+          - name: coda-gateway
+            uses: docker/build-push-action@v6
+            with:
+              context: .
+              file: hack/Dockerfile.gateway
+              push: true
+              tags: ghcr.io/immanuel-peter/opencoda/coda-gateway:latest
 
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: hack/Dockerfile.studio
-          push: true
-          tags: ghcr.io/immanuel-peter/opencoda/coda-studio:latest
+          - name: coda-studio
+            uses: docker/build-push-action@v6
+            with:
+              context: .
+              file: hack/Dockerfile.studio
+              push: true
+              tags: ghcr.io/immanuel-peter/opencoda/coda-studio:latest
