@@ -191,10 +191,11 @@ func (r *Reconciler) setRolloutCondition(ep *opencodav1alpha1.CodaEndpoint, spec
 		msg = "surging new generation"
 	}
 	cond := metav1.Condition{
-		Type:    rolloutCondition,
-		Status:  status,
-		Reason:  "RollingUpdate",
-		Message: msg,
+		Type:               rolloutCondition,
+		Status:             status,
+		Reason:             "RollingUpdate",
+		Message:            msg,
+		LastTransitionTime: metav1.Now(),
 	}
 	ep.Status.Conditions = []metav1.Condition{cond}
 }
