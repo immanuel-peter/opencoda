@@ -681,7 +681,8 @@ One-line positioning, for the pitch and the AIBrix/Dynamo comparison row: **serv
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | **1 — Wedge** (8–10 wk) | CRDs, buffer controller + greedy, AWS/GCP/Static providers, Nydus, LMCache default wiring, gateway, health ctrl, SDK/CLI + token auth, engine matrix + prefetch manifests, Studio Tier 1 | ≤60s p50 cold start (1 GiB model); UC1 demo: bursty agent trace at ≥45% utilization with ≥70% first-request KV hit |
-| **1a — Scaffold shipped** (June 2026) | Monorepo scaffold + Phase 1 depth pass (§29); live-cluster GPU validation pending | Build passes; `make e2e-kind` harness; `hack/e2e-aws.sh` for spot run |
+| **1a — Scaffold shipped** (June 2026) | Monorepo scaffold + Phase 1 depth pass (§29) | Build passes; `make e2e-kind` harness; `hack/e2e-aws.sh` for spot run |
+| **1b — EKS static GPU gate** (July 2026) | Live EKS validation: static `GPUPool` + buffer + `CodaEndpoint` → fakevllm Ready on g5 (`make e2e-eks-gpu`) | Gate passed on `opencoda-dev` (us-east-1); prerequisite to **start Phase 2** implementation cleared — Phase 1 §26 exit metrics (cold start, KV hit) still open |
 | **2 — CPU snapshots** (6–8 wk) | Node agent runtime handler, CRIU path, snapshot keying + cache, in-cluster BuildKit builder, Modal compat shim, engine-metric/SLO autoscaling, Studio Tier 2 | `import torch`-class init skipped; host-init segment ≥5x faster; restore-failure fallback proven in chaos test |
 | **3 — GPU snapshots** (8–12 wk) | cuda-checkpoint, weight offload, warm restore + KV-affinity routing via engine-native router (`vllm-router`/`sglang-router`, FR-14b), Studio Tier 3 (economics) | ≤20s p50 cold start; ≥85% first-request KV hit; 10k-cold-start soak with zero request-path failures |
 | **4 — Scale-out** (ongoing) | LP scheduler, provider conformance + out-of-tree plugins, P/D disaggregation experiment, federation API stubs | 2 external provider plugins; design partner running >100 GPUs across ≥2 clouds |
@@ -699,9 +700,9 @@ Risk-ordering rationale: the jankiest component (GPU C/R) ships **after** users 
 7. ~~`KVProvider.Fingerprint` granularity: per-request first-N-token hash vs. exposing LMCache's full chunk-hash chain to the router.~~ **Resolved (§18, FR-14b):** the engine-native router consumes LMCache's full chunk-hash chain directly via the KV-event stream; `KVProvider.Fingerprint` is needed only on the thin-proxy fallback path, where first-N-token hashing is sufficient.
 8. P/D role surface (§25): role-as-label on one endpoint vs. paired endpoints with a binding — which keeps the v1 API forward-compatible with less ceremony?
 
-## 29. Phase 1 implementation status (June 2026)
+## 29. Phase 1 implementation status (June–July 2026)
 
-Initial monorepo scaffold landed at `github.com/immanuel-peter/opencoda` (CRD group **`opencoda.dev`**, not `opencoda.io`). This is a **breadth-first** pass: interfaces, controllers, gateway, Studio Tier 1 UI, Helm chart, SDK/CLI, and unit tests compile and run; several paths are intentionally thin until Phase 1 exit criteria are met.
+Initial monorepo scaffold landed at `github.com/immanuel-peter/opencoda` (CRD group **`opencoda.dev`**, not `opencoda.io`). This is a **breadth-first** pass: interfaces, controllers, gateway, Studio Tier 1 UI, Helm chart, SDK/CLI, and unit tests compile and run; several paths are intentionally thin until Phase 1 exit criteria are met. **July 2026:** EKS static GPU gate passed (`make e2e-eks-gpu`); control-loop scheduling on real g5 hardware is proven; §26 wedge metrics and gateway traffic curl remain.
 
 ### Shipped (Phase 1 depth pass — June 2026)
 
@@ -709,14 +710,16 @@ Initial monorepo scaffold landed at `github.com/immanuel-peter/opencoda` (CRD gr
 |---|---|---|
 | CRDs + admission | `api/v1alpha1/`, `config/crd/bases/`, `internal/webhook/` | All six resources; `GPUPool.status.nodeRecords`; rejects non-`runc` + `SnapshotClass`, non-`vllm` engine |
 | CapacityProvider factory | `pkg/capacity/`, `internal/capacityfactory/`, `pkg/capacity/{static,aws,gcp}/` | Per-pool factories from `credentialsRef`; bootstrap userdata (`pkg/capacity/bootstrap/`); AWS EC2 spot + ICE; GCP GCE SPOT + exhaustion |
-| Pool controller + pricesync | `internal/controller/pool/`, `pkg/capacity/pricesync/` | `observedCapacity`, node record reconciliation, skypilot-catalog CSV sync |
-| Buffer depth | `internal/controller/buffer/` | Real warm GPU counts, scale-down (cordon/drain/Release), `maxHourlyUSD` ceiling, dynamic target from gateway demand EWMA |
-| Endpoint depth | `internal/controller/endpoint/` | `opencoda.dev/desired-replicas`, scale-to-zero timer, spec-hash rolling upgrades + rollout condition |
+| Pool controller + pricesync | `internal/controller/pool/`, `pkg/capacity/pricesync/` | `observedCapacity`, node record reconciliation, skypilot-catalog CSV sync; **static pool:** discovers pre-joined nodes via `opencoda.dev/pool` label (skips `Provision()` when nodes exist) |
+| Buffer depth | `internal/controller/buffer/` | Real warm GPU counts, scale-down (cordon/drain/Release), `maxHourlyUSD` ceiling, dynamic target from gateway demand EWMA; skips static `Provision()` when pool has real nodes |
+| Endpoint depth | `internal/controller/endpoint/` | `opencoda.dev/desired-replicas`, scale-to-zero timer, spec-hash rolling upgrades + rollout condition; GPU pods: `nvidia.com/gpu` requests, `opencoda.io/gpu` tolerations, `opencoda.dev/gpu` nodeSelector; rollout condition `lastTransitionTime` fix |
 | Health + Xid | `internal/controller/health/` | Boot/deep check; `opencoda.dev/xid-critical` → cordon/drain/Release |
 | Gateway ↔ K8s | `internal/gateway/`, `cmd/coda-gateway/` | K8s client, pod URL registration, autoscaler patches desired-replicas, EWMA → `BufferPolicy.status.demandEWMA` |
 | CodaToken auth | `internal/gateway/token.go`, `cli/token.go` | CR lookup + sha256 verify; `coda token new` |
 | Cachefill + Spegel | `internal/nodeagent/cachefill/`, `charts/opencoda/` | ctr pull + nydus prefetch; Spegel DaemonSet + containerd config in userdata |
-| E2E harness | `test/e2e/`, `hack/e2e-kind.sh`, `hack/e2e-aws.sh` | fakevllm image; kind script + `make e2e-kind`; live AWS script for spot validation |
+| E2E harness | `test/e2e/`, `hack/e2e-kind.sh`, `hack/e2e-aws.sh`, `hack/e2e-eks.sh`, `hack/e2e-eks-gpu.sh` | fakevllm image; kind + `make e2e-kind`; EKS control-plane smoke; **`make e2e-eks-gpu`** static g5 gate (`test/e2e/fixtures/gpu-smoke.yaml`); live AWS script for spot validation |
+| EKS GPU gate (July 2026) | `hack/e2e-eks-gpu.sh`, `tmp/eks/gpu-nodegroup.yaml`, GHCR images | g5.xlarge static nodegroup + NVIDIA device plugin (tolerates `opencoda.io/gpu` taint); fakevllm Ready on labeled GPU node; images at `ghcr.io/immanuel-peter/opencoda/` |
+| CI + image publish | `.github/workflows/ci.yml`, `.github/workflows/publish-images.yml` | Unit/vet/kind on GHA; parallel GHCR publish for controller, gateway, studio, fakevllm |
 | Metrics | `internal/metrics/` | Prometheus series per §22 |
 | Image convert | `cli/image_convert.go` | Wraps `nydusify convert` |
 | SDK + CLI | `sdk/python/`, `cmd/coda`, `cli/` | Native client; `coda.compat` stub |
@@ -729,13 +732,15 @@ Initial monorepo scaffold landed at `github.com/immanuel-peter/opencoda` (CRD gr
 
 | Gap | FR | Notes |
 |---|---|---|
+| **Gateway traffic on EKS** | §26, FR-6 | Static GPU gate proves pod Ready; automated curl via gateway (`/v1/chat/completions`) not yet in `hack/e2e-eks-gpu.sh` |
 | **Live EKS/GKE spot run** | §26 | `hack/e2e-aws.sh` + creds; node join/bootstrap is the top risk on managed clusters |
 | **DCGM Xid in prod** | FR-7 | CI uses `opencoda.dev/xid-critical` annotation; DCGM exporter wiring on real GPU nodes |
-| **Measured cold start + KV hit** | §26 | Requires GPU nodes + real vLLM; kind harness proves control-loop wiring with fakevllm |
+| **Measured cold start + KV hit** | §26 | Static GPU scheduling validated July 2026; still needs real vLLM + LMCache enabled + timing (≤60s p50, ≥70% KV hit) — fakevllm/gpu-smoke proves control-loop wiring only |
+| **Nydus + cachefill end-to-end** | FR-4, §16 | `coda image convert` + node-agent cachefill shipped in code; not yet exercised on EKS buffered nodes |
 
 ### Previously scaffold-only — now shipped (removed from gap list)
 
-AWS/GCP real provisioning, pool feedback, buffer scale-down, gateway K8s wiring, CodaToken validation, FR-1a rolling upgrades, cachefill+Spegel, Xid automation, kind E2E harness.
+AWS/GCP real provisioning, pool feedback, buffer scale-down, gateway K8s wiring, CodaToken validation, FR-1a rolling upgrades, cachefill+Spegel, Xid automation, kind E2E harness, **EKS static GPU gate** (pool static-node discovery, endpoint GPU pod spec, `make e2e-eks-gpu`).
 
 ### Explicitly deferred to Phase 2 or 3 (do **not** block Phase 1 on these)
 
@@ -750,7 +755,7 @@ AWS/GCP real provisioning, pool feedback, buffer scale-down, gateway K8s wiring,
 | Studio Tier 3 economics dashboard | Phase 3 | FR-14a |
 | **SGLang** `Engine` implementation | Post-v1 (interface ready) | FR-5b extension; router in Phase 3 when added |
 
-**Summary:** Node-agent CRIU, snapshots, Modal compat, and KV-aware routing are **Phase 2–3** by design. Cloud provider depth, token auth, E2E proof of cold start/KV hit, and image cachefill are **still Phase 1** — the scaffold is the foundation, not the finish line.
+**Summary:** Node-agent CRIU, snapshots, Modal compat, and KV-aware routing are **Phase 2–3** by design. **Phase 2 implementation may start** once EKS static GPU validation passes (§26 **1b**, July 2026). Cloud provider depth (spot/ICE live runs), gateway traffic curl on EKS, measured cold start + KV hit, and Nydus/cachefill end-to-end proof are **still Phase 1** — the scaffold is the foundation, not the finish line.
 
 ## 28. What we'd revisit as it grows
 
