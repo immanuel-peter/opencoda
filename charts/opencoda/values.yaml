@@ -1,5 +1,8 @@
 namespace: opencoda-system
 
+# Set for AWS spot pool EKS node bootstrap (userdata cluster name).
+eksClusterName: ""
+
 imageRegistry: ghcr.io/immanuel-peter/opencoda
 
 imagePullSecrets: []
@@ -27,6 +30,11 @@ studio:
 nodeAgent:
   enabled: true
   image: ghcr.io/immanuel-peter/opencoda/coda-node-agent:latest
+  images: ""
+
+dcgmExporter:
+  enabled: false
+  image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.8-3.6.0-ubuntu22.04
 
 garage:
   enabled: true

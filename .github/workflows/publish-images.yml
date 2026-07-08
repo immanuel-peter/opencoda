@@ -54,3 +54,11 @@ jobs:
               file: hack/Dockerfile.fakevllm
               push: true
               tags: ghcr.io/immanuel-peter/opencoda/coda-fakevllm:latest
+
+          - name: coda-node-agent
+            uses: docker/build-push-action@v6
+            with:
+              context: .
+              file: hack/Dockerfile.node-agent
+              push: true
+              tags: ghcr.io/immanuel-peter/opencoda/coda-node-agent:latest

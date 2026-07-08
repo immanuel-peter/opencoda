@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 
 	opencodav1alpha1 "github.com/immanuel-peter/opencoda/api/v1alpha1"
 	"github.com/immanuel-peter/opencoda/internal/constants"
+	"github.com/immanuel-peter/opencoda/internal/metrics"
 	"github.com/immanuel-peter/opencoda/pkg/engine"
 	"github.com/immanuel-peter/opencoda/pkg/engine/vllm"
 	"github.com/immanuel-peter/opencoda/pkg/kv"
@@ -38,6 +40,7 @@ type Reconciler struct {
 	KVProviders    *kv.Registry
 	GarageEndpoint string
 	idleSince      map[string]time.Time
+	coldSamples    map[string][]float64
 }
 
 func NewReconciler(c client.Client, scheme *runtime.Scheme, garageEndpoint string) *Reconciler {
@@ -55,6 +58,7 @@ func NewReconciler(c client.Client, scheme *runtime.Scheme, garageEndpoint strin
 		KVProviders:    kvReg,
 		GarageEndpoint: garageEndpoint,
 		idleSince:      make(map[string]time.Time),
+		coldSamples:    make(map[string][]float64),
 	}
 }
 
@@ -79,6 +83,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	ep.Status.Replicas.Ready = ready + oldReady
 	ep.Status.Replicas.Starting = starting
 	r.setRolloutCondition(&ep, specHash, ready, oldReady, desired)
+	r.recordColdStarts(ctx, &ep)
 
 	if err := r.Status().Update(ctx, &ep); err != nil {
 		return ctrl.Result{}, err
@@ -257,7 +262,8 @@ func (r *Reconciler) buildPod(ep *opencodav1alpha1.CodaEndpoint, index int, spec
 				"app.kubernetes.io/name":   "opencoda",
 			},
 			Annotations: map[string]string{
-				constants.AnnotationSpecHash: specHash,
+				constants.AnnotationSpecHash:     specHash,
+				constants.AnnotationPodCreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 			},
 		},
 		Spec: *podSpec,
@@ -303,6 +309,82 @@ func (r *Reconciler) selectKV(ep *opencodav1alpha1.CodaEndpoint) kv.KVProvider {
 	}
 	p, _ := r.KVProviders.Get(null.ProviderName)
 	return p
+}
+
+func (r *Reconciler) recordColdStarts(ctx context.Context, ep *opencodav1alpha1.CodaEndpoint) {
+	key := ep.Namespace + "/" + ep.Name
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods, client.InNamespace(ep.Namespace), client.MatchingLabels{
+		constants.LabelEndpoint: ep.Name,
+	}); err != nil {
+		return
+	}
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if pod.Annotations[constants.AnnotationColdStartRecorded] == "true" {
+			continue
+		}
+		ready := false
+		for _, c := range pod.Status.Conditions {
+			if c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue {
+				ready = true
+				break
+			}
+		}
+		if !ready {
+			continue
+		}
+		createdAt := pod.Annotations[constants.AnnotationPodCreatedAt]
+		if createdAt == "" {
+			createdAt = pod.CreationTimestamp.UTC().Format(time.RFC3339Nano)
+		}
+		start, err := time.Parse(time.RFC3339Nano, createdAt)
+		if err != nil {
+			start = pod.CreationTimestamp.Time
+		}
+		elapsed := time.Since(start).Seconds()
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		metrics.ColdStartSeconds.WithLabelValues("cold", ep.Name).Observe(elapsed)
+		r.coldSamples[key] = append(r.coldSamples[key], elapsed)
+		if len(r.coldSamples[key]) > 50 {
+			r.coldSamples[key] = r.coldSamples[key][len(r.coldSamples[key])-50:]
+		}
+		ep.Status.ColdStart.P50Ms, ep.Status.ColdStart.P95Ms = percentileMs(r.coldSamples[key], 0.50, 0.95)
+
+		patch := client.MergeFrom(pod.DeepCopy())
+		if pod.Annotations == nil {
+			pod.Annotations = map[string]string{}
+		}
+		pod.Annotations[constants.AnnotationColdStartRecorded] = "true"
+		_ = r.Patch(ctx, pod, patch)
+	}
+}
+
+func percentileMs(samples []float64, ps ...float64) (int64, int64) {
+	if len(samples) == 0 {
+		return 0, 0
+	}
+	sorted := append([]float64(nil), samples...)
+	sort.Float64s(sorted)
+	idx := func(p float64) int64 {
+		if len(sorted) == 1 {
+			return int64(sorted[0] * 1000)
+		}
+		rank := p * float64(len(sorted)-1)
+		lo := int(rank)
+		hi := lo + 1
+		if hi >= len(sorted) {
+			return int64(sorted[len(sorted)-1] * 1000)
+		}
+		frac := rank - float64(lo)
+		val := sorted[lo]*(1-frac) + sorted[hi]*frac
+		return int64(val * 1000)
+	}
+	p50 := idx(ps[0])
+	p95 := idx(ps[1])
+	return p50, p95
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {

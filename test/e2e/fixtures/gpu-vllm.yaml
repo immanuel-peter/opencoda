@@ -32,11 +32,9 @@ kind: CodaEndpoint
 metadata:
   name: demo-vllm
   namespace: default
-  annotations:
-    opencoda.dev/desired-replicas: "1"
 spec:
   model:
-    source: hf://TinyLlama/TinyLlama-1.1B-Chat-v1.0
+    source: hf://Qwen/Qwen2.5-0.5B-Instruct
     quantization: fp16
   engine:
     type: vllm
@@ -51,8 +49,14 @@ spec:
     maxReplicas: 2
     target:
       metric: concurrency
-      value: 8
+      value: 4
     scaleToZeroAfter: 5m
   kv:
     lmcache:
-      enabled: false
+      enabled: true
+      shared: true
+      tiers: [cpu, nvme, s3]
+      remoteRef:
+        bucket: coda-kv
+        prefix: demo/
+        endpoint: http://garage.opencoda-system.svc:3900

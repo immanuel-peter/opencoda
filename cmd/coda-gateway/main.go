@@ -45,6 +45,7 @@ func main() {
 	auth := gateway.NewTokenAuth(validator)
 	srv := gateway.NewServer(addr, auth)
 	srv.SetRouter(router)
+	srv.SetK8sSync(syncer)
 
 	ctx := ctrl.SetupSignalHandler()
 	go syncer.RunAutoscalerLoop(ctx, 10*time.Second)

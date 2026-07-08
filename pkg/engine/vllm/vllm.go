@@ -50,10 +50,14 @@ func (e *Engine) ReadinessProbe() *corev1.Probe {
 	}
 }
 
+func modelIDForServe(source string) string {
+	return strings.TrimPrefix(source, "hf://")
+}
+
 func (e *Engine) RenderPodSpec(ep *opencodav1alpha1.CodaEndpoint, node engine.NodeProfile, kvPatch engine.PodPatch) (*corev1.PodSpec, error) {
 	args := []string{
 		"serve",
-		ep.Spec.Model.Source,
+		modelIDForServe(ep.Spec.Model.Source),
 		"--host", "0.0.0.0",
 		"--port", fmt.Sprintf("%d", defaultPort),
 	}

@@ -15,6 +15,10 @@ cd "$ROOT"
 : "${GHCR_USER:=immanuel-peter}"
 : "${CODA_ENGINE_IMAGE:-}"
 : "${CODA_E2E_FIXTURE:=minimal.yaml}"
+: "${CODA_ENABLE_GARAGE:=0}"
+: "${CODA_ENABLE_NODEAGENT:=0}"
+: "${CODA_ENABLE_DCGM:=0}"
+: "${CODA_GATEWAY_TEST:=0}"
 
 SPOT_MODE=0
 while [[ $# -gt 0 ]]; do
@@ -72,13 +76,17 @@ HELM_SET=(
   --set controllerManager.image="$CONTROLLER_IMAGE"
   --set gateway.image="$GATEWAY_IMAGE"
   --set controllerManager.fakeHealth="$CODA_FAKE_HEALTH"
-  --set garage.enabled=false
+  --set garage.enabled="$([[ "$CODA_ENABLE_GARAGE" == "1" ]] && echo true || echo false)"
   --set spegel.enabled=false
   --set studio.enabled=false
-  --set nodeAgent.enabled=false
+  --set nodeAgent.enabled="$([[ "$CODA_ENABLE_NODEAGENT" == "1" ]] && echo true || echo false)"
+  --set dcgmExporter.enabled="$([[ "$CODA_ENABLE_DCGM" == "1" ]] && echo true || echo false)"
 )
 if [[ -n "$CODA_ENGINE_IMAGE" ]]; then
   HELM_SET+=(--set controllerManager.engineImage="$CODA_ENGINE_IMAGE")
+fi
+if [[ -n "${EKS_CLUSTER_NAME:-}" ]]; then
+  HELM_SET+=(--set eksClusterName="$EKS_CLUSTER_NAME")
 fi
 if kubectl -n "$CODA_NAMESPACE" get secret ghcr-credentials >/dev/null 2>&1; then
   HELM_SET+=(--set-json 'imagePullSecrets=[{"name":"ghcr-credentials"}]')
@@ -91,6 +99,18 @@ kubectl wait --for=condition=established crd/bufferpolicies.opencoda.dev --timeo
 kubectl wait --for=condition=established crd/codaendpoints.opencoda.dev --timeout=180s
 
 echo "==> installing OpenCoda via Helm"
+# Clear SSA field-manager conflicts from prior kubectl patches before upgrade.
+kubectl -n "$CODA_NAMESPACE" delete deployment coda-controller-manager coda-gateway \
+  --ignore-not-found --wait=true 2>/dev/null || true
+
+if helm status "$HELM_RELEASE" -n "$CODA_NAMESPACE" 2>/dev/null | grep -q pending; then
+  last_ok="$(helm history "$HELM_RELEASE" -n "$CODA_NAMESPACE" -o json | python3 -c 'import json,sys; revs=[r for r in json.load(sys.stdin) if r.get("status")=="deployed"]; print(revs[-1]["revision"] if revs else "")' 2>/dev/null || true)"
+  if [[ -n "$last_ok" ]]; then
+    echo "==> clearing pending Helm release (rollback to revision ${last_ok})"
+    helm rollback "$HELM_RELEASE" "$last_ok" -n "$CODA_NAMESPACE" --wait --timeout 5m || true
+  fi
+fi
+
 helm upgrade --install "$HELM_RELEASE" "$ROOT/charts/opencoda" \
   --namespace "$CODA_NAMESPACE" --create-namespace \
   "${HELM_SET[@]}" \
@@ -104,7 +124,8 @@ kubectl -n "$CODA_NAMESPACE" rollout status deployment/coda-gateway --timeout=30
 echo "==> applying fixtures (${CODA_E2E_FIXTURE})"
 kubectl apply -f "$ROOT/test/e2e/fixtures/${CODA_E2E_FIXTURE}"
 if [[ "$SPOT_MODE" == "1" ]]; then
-  kubectl apply -f "$ROOT/test/e2e/fixtures/aws-spot-pool.yaml"
+  SPOT_FIXTURE="${CODA_SPOT_FIXTURE:-$ROOT/test/e2e/fixtures/aws-spot-pool.yaml}"
+  kubectl apply -f "$SPOT_FIXTURE"
 fi
 
 echo "==> buffer reconcile window (pool=${CODA_POOL})"
@@ -120,9 +141,20 @@ if kubectl -n "$CODA_NAMESPACE" get svc "$GW_SVC" >/dev/null 2>&1; then
   kubectl -n "$CODA_NAMESPACE" get svc "$GW_SVC" -o wide
 fi
 
-echo ""
-echo "Next manual checks:"
-echo "  1. coda token new --namespace default"
-echo "  2. kubectl -n $CODA_NAMESPACE port-forward svc/coda-gateway 8090:8090"
-echo "  3. curl -H 'Authorization: Bearer <id:secret>' http://127.0.0.1:8090/v1/chat/completions ..."
-echo "  4. kubectl -n $CODA_NAMESPACE logs deploy/coda-controller-manager --tail=200"
+if [[ "$CODA_ENABLE_GARAGE" == "1" ]]; then
+  chmod +x "$ROOT/hack/lib/garage-bootstrap.sh"
+  "$ROOT/hack/lib/garage-bootstrap.sh"
+fi
+
+if [[ "$CODA_GATEWAY_TEST" == "1" ]]; then
+  # shellcheck source=hack/lib/e2e-gateway.sh
+  source "$ROOT/hack/lib/e2e-gateway.sh"
+  e2e_run_gateway_smoke
+else
+  echo ""
+  echo "Next manual checks:"
+  echo "  1. coda token new --namespace default"
+  echo "  2. kubectl -n $CODA_NAMESPACE port-forward svc/coda-gateway 8090:8090"
+  echo "  3. curl -H 'Authorization: Bearer <id:secret>' http://127.0.0.1:8090/v1/chat/completions ..."
+  echo "  4. kubectl -n $CODA_NAMESPACE logs deploy/coda-controller-manager --tail=200"
+fi

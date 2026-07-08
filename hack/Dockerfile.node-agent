@@ -1,0 +1,23 @@
+FROM golang:1.26 AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/coda-node-agent ./cmd/coda-node-agent
+
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    containerd \
+    curl \
+    util-linux \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.32.0/crictl-v1.32.0-linux-amd64.tar.gz \
+    | tar -xz -C /usr/local/bin crictl
+RUN printf 'runtime-endpoint: unix:///run/containerd/containerd.sock\nimage-endpoint: unix:///run/containerd/containerd.sock\n' > /etc/crictl.yaml
+RUN curl -fsSL https://github.com/dragonflyoss/nydus/releases/download/v2.3.0/nydus-static-v2.3.0-linux-amd64.tgz \
+    | tar -xz -C /tmp \
+    && mv /tmp/nydus-static/nydus-image /tmp/nydus-static/nydusctl /usr/local/bin/ \
+    && rm -rf /tmp/nydus-static
+COPY --from=builder /out/coda-node-agent /usr/local/bin/coda-node-agent
+ENTRYPOINT ["/usr/local/bin/coda-node-agent"]

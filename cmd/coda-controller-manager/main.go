@@ -63,6 +63,7 @@ func main() {
 	boot := capacity.BootstrapConfig{
 		APIServerURL: cfg.Host,
 		JoinToken:    os.Getenv("CODA_JOIN_TOKEN"),
+		ClusterName:  os.Getenv("EKS_CLUSTER_NAME"),
 	}
 	providers := capacity.NewProviderCache(mgr.GetClient(), boot, capacityfactory.NewRegistry())
 

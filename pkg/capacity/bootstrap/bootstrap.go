@@ -11,6 +11,7 @@ type Config struct {
 	CABundle     string
 	JoinToken    string
 	PoolName     string
+	ClusterName  string
 	JoinMode     string // kubeadm | eks | gke
 }
 
@@ -23,7 +24,13 @@ func UserData(cfg Config) string {
 	var joinCmd string
 	switch joinMode {
 	case "eks":
-		joinCmd = "/etc/eks/bootstrap.sh ${CLUSTER_NAME:-opencoda}"
+		cluster := cfg.ClusterName
+		if cluster == "" {
+			cluster = "opencoda"
+		}
+		joinCmd = fmt.Sprintf(
+			"/etc/eks/bootstrap.sh %q --kubelet-extra-args '--node-labels=opencoda.dev/gpu=true,opencoda.dev/pool=%s,opencoda.dev/buffer-eligible=true'",
+			cluster, cfg.PoolName)
 	case "gke":
 		joinCmd = "gcloud container clusters get-credentials ${CLUSTER_NAME:-opencoda} --zone ${ZONE:-us-central1-a}"
 	default:
@@ -32,22 +39,7 @@ func UserData(cfg Config) string {
 	}
 	return fmt.Sprintf(`#!/bin/bash
 set -euo pipefail
-# containerd: lazy pull + Spegel mirror path (§16)
-mkdir -p /etc/containerd/certs.d
-cat >/etc/containerd/config.toml <<'EOF'
-version = 2
-[plugins."io.containerd.cri.v1.images"]
-  discard_unpacked_layers = false
-  use_local_image_pull = true
-[plugins."io.containerd.cri.v1.images".registry]
-  config_path = "/etc/containerd/certs.d"
-[plugins."io.containerd.grpc.v1.cri".containerd]
-  disable_snapshot_annotations = false
-EOF
-systemctl restart containerd || true
-# node labels for OpenCoda
-POOL=%s
-echo "opencoda pool bootstrap for $POOL"
+# node labels for OpenCoda (pool=%s)
 %s
 `, cfg.PoolName, joinCmd)
 }

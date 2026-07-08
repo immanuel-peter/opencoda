@@ -22,6 +22,7 @@ chmod +x tmp/eks/add-gpu-nodegroup.sh hack/e2e-eks.sh
 
 export CODA_ENGINE_IMAGE="$FAKEVLLM_IMAGE"
 export CODA_E2E_FIXTURE=gpu-smoke.yaml
+export CODA_GATEWAY_TEST=1
 ./hack/e2e-eks.sh
 
 echo "==> waiting for endpoint pod on GPU node"
@@ -38,3 +39,6 @@ kubectl get node "$NODE" -L opencoda.dev/gpu,opencoda.dev/pool
 
 echo ""
 echo "GPU smoke test passed: fakevllm pod is Ready on a labeled GPU node."
+if [[ -n "${CODA_COLD_START_WALL_SECS:-}" ]]; then
+  echo "Gateway cold-start wall time: ${CODA_COLD_START_WALL_SECS}s"
+fi

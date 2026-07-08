@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,15 +24,16 @@ const ProviderName = "aws"
 
 // Provider provisions EC2 GPU instances.
 type Provider struct {
-	client    *ec2.Client
-	region    string
-	poolName  string
+	client        *ec2.Client
+	region        string
+	poolName      string
 	instanceTypes []string
-	subnets   []string
-	capacityType string
-	boot      capacity.BootstrapConfig
-	lastICE   []time.Time
-	hourlyUSD float64
+	subnets       []string
+	capacityType  string
+	params        map[string]string
+	boot          capacity.BootstrapConfig
+	lastICE       []time.Time
+	hourlyUSD     float64
 }
 
 func NewFactory() capacity.Factory {
@@ -56,6 +58,7 @@ func NewFactory() capacity.Factory {
 			instanceTypes: pool.Spec.InstanceTypes,
 			subnets:       subnets,
 			capacityType:  capType,
+			params:        pool.Spec.Provider.Params,
 			boot:          boot,
 			hourlyUSD:     0,
 		}, nil
@@ -105,9 +108,9 @@ func (p *Provider) Quote(ctx context.Context, req capacity.GPURequest) ([]capaci
 	price := p.hourlyUSD
 	if price == 0 {
 		out, err := p.client.DescribeSpotPriceHistory(ctx, &ec2.DescribeSpotPriceHistoryInput{
-			InstanceTypes: []types.InstanceType{types.InstanceType(instanceType)},
+			InstanceTypes:       []types.InstanceType{types.InstanceType(instanceType)},
 			ProductDescriptions: []string{"Linux/UNIX"},
-			MaxResults: aws.Int32(1),
+			MaxResults:          aws.Int32(1),
 		})
 		if err == nil && len(out.SpotPriceHistory) > 0 {
 			if v, err := parseSpotPrice(out.SpotPriceHistory[0].SpotPrice); err == nil {
@@ -139,15 +142,26 @@ func parseSpotPrice(s *string) (float64, error) {
 }
 
 func (p *Provider) Provision(ctx context.Context, offer capacity.Offer) (*capacity.NodeHandle, error) {
+	clusterName := p.params["clusterName"]
+	if clusterName == "" {
+		clusterName = p.boot.ClusterName
+	}
 	userdata := bootstrap.UserData(bootstrap.Config{
 		APIServerURL: p.boot.APIServerURL,
 		CABundle:     p.boot.CABundle,
 		JoinToken:    p.boot.JoinToken,
 		PoolName:     p.poolName,
+		ClusterName:  clusterName,
 		JoinMode:     "eks",
 	})
+
+	ami, err := p.resolveAMI(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	input := &ec2.RunInstancesInput{
-		ImageId:      aws.String("resolve-latest"),
+		ImageId:      aws.String(ami),
 		InstanceType: types.InstanceType(offer.InstanceType),
 		MinCount:     aws.Int32(1),
 		MaxCount:     aws.Int32(1),
@@ -157,15 +171,25 @@ func (p *Provider) Provision(ctx context.Context, offer capacity.Offer) (*capaci
 			Tags: []types.Tag{
 				{Key: aws.String("opencoda.dev/pool"), Value: aws.String(p.poolName)},
 				{Key: aws.String("opencoda.dev/provider"), Value: aws.String(ProviderName)},
+				{Key: aws.String("kubernetes.io/cluster/" + clusterName), Value: aws.String("owned")},
 			},
 		}},
 	}
 	if len(p.subnets) > 0 {
 		input.SubnetId = aws.String(p.subnets[0])
 	}
+	if profile := p.params["nodeInstanceProfile"]; profile != "" {
+		input.IamInstanceProfile = &types.IamInstanceProfileSpecification{Name: aws.String(profile)}
+	}
+	if sgs := splitCSV(p.params["securityGroupIds"]); len(sgs) > 0 {
+		input.SecurityGroupIds = sgs
+	}
 	if p.capacityType == "spot" || offer.Interruptible {
 		input.InstanceMarketOptions = &types.InstanceMarketOptionsRequest{
 			MarketType: types.MarketTypeSpot,
+			SpotOptions: &types.SpotMarketOptions{
+				SpotInstanceType: types.SpotInstanceTypeOneTime,
+			},
 		}
 	}
 	out, err := p.client.RunInstances(ctx, input)
@@ -187,12 +211,38 @@ func (p *Provider) Provision(ctx context.Context, offer capacity.Offer) (*capaci
 		ProviderID: fmt.Sprintf("aws://%s/%s", zone, id),
 		NodeName:   nodeName,
 		Labels: map[string]string{
-			"opencoda.dev/provider": ProviderName,
-			"opencoda.dev/pool":     p.poolName,
+			"opencoda.dev/provider":          ProviderName,
+			"opencoda.dev/pool":              p.poolName,
+			"opencoda.dev/gpu":               "true",
+			"opencoda.dev/buffer-eligible":   "true",
 			"node.kubernetes.io/instance-type": offer.InstanceType,
 		},
 		LaunchedAt: time.Now(),
 	}, nil
+}
+
+func (p *Provider) resolveAMI(ctx context.Context) (string, error) {
+	if ami := strings.TrimSpace(p.params["ami"]); ami != "" {
+		return ami, nil
+	}
+	out, err := p.client.DescribeImages(ctx, &ec2.DescribeImagesInput{
+		Owners: []string{"amazon"},
+		Filters: []types.Filter{
+			{Name: aws.String("name"), Values: []string{"amazon-eks-gpu-node-al2023-x86_64-*"}},
+			{Name: aws.String("state"), Values: []string{"available"}},
+			{Name: aws.String("architecture"), Values: []string{"x86_64"}},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(out.Images) == 0 {
+		return "", fmt.Errorf("no EKS GPU AMI found in %s", p.region)
+	}
+	sort.Slice(out.Images, func(i, j int) bool {
+		return aws.ToString(out.Images[i].CreationDate) > aws.ToString(out.Images[j].CreationDate)
+	})
+	return aws.ToString(out.Images[0].ImageId), nil
 }
 
 func isInsufficientCapacity(err error) bool {
@@ -215,7 +265,6 @@ func (p *Provider) Release(ctx context.Context, h *capacity.NodeHandle) error {
 }
 
 func parseInstanceID(providerID string) string {
-	// aws://zone/i-abc123
 	parts := strings.Split(providerID, "/")
 	if len(parts) == 0 {
 		return ""

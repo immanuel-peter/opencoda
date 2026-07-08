@@ -54,6 +54,26 @@ e2e-eks:
 e2e-eks-gpu:
 	chmod +x hack/e2e-eks-gpu.sh && ./hack/e2e-eks-gpu.sh
 
+.PHONY: e2e-eks-vllm
+e2e-eks-vllm:
+	chmod +x hack/e2e-eks-vllm.sh && ./hack/e2e-eks-vllm.sh
+
+.PHONY: e2e-uc1
+e2e-uc1:
+	chmod +x hack/e2e-uc1.sh && ./hack/e2e-uc1.sh
+
+.PHONY: e2e-phase1-followups
+e2e-phase1-followups:
+	chmod +x hack/e2e-phase1-followups.sh && ./hack/e2e-phase1-followups.sh
+
+.PHONY: e2e-nydus
+e2e-nydus:
+	chmod +x hack/e2e-nydus.sh && ./hack/e2e-nydus.sh
+
+.PHONY: e2e-phase1-signoff
+e2e-phase1-signoff:
+	chmod +x hack/e2e-phase1-signoff.sh && ./hack/e2e-phase1-signoff.sh
+
 .PHONY: docker-build
 docker-build:
 	docker build -t $(REGISTRY)/coda-controller-manager:latest -f hack/Dockerfile.controller .

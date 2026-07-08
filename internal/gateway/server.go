@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -152,6 +153,7 @@ type Server struct {
 	autoscaler *Autoscaler
 	auth       *TokenAuth
 	addr       string
+	kvSync     *K8sSync
 }
 
 func NewServer(addr string, auth *TokenAuth) *Server {
@@ -165,6 +167,10 @@ func NewServer(addr string, auth *TokenAuth) *Server {
 func (s *Server) SetRouter(r *Router) {
 	s.router = r
 	s.autoscaler = NewAutoscaler(r)
+}
+
+func (s *Server) SetK8sSync(sync *K8sSync) {
+	s.kvSync = sync
 }
 
 func (s *Server) ListenAndServe() error {
@@ -192,7 +198,11 @@ func (s *Server) handleStudioEndpoints(w http.ResponseWriter, r *http.Request) {
 	var out []ep
 	s.router.mu.RLock()
 	for _, e := range s.router.endpoints {
-		out = append(out, ep{Name: e.Name, Ready: 0, Starting: 0, KVHitRate: 0, Model: e.ModelID})
+		kvRate := 0.0
+		if s.kvSync != nil {
+			kvRate = s.kvSync.KVHitRate(e.Name)
+		}
+		out = append(out, ep{Name: e.Name, Ready: len(e.ReplicaURLs), Starting: 0, KVHitRate: kvRate, Model: e.ModelID})
 	}
 	s.router.mu.RUnlock()
 	json.NewEncoder(w).Encode(out)
@@ -248,7 +258,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	proxyReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, url+"/v1/chat/completions", bytes.NewReader(body))
+	proxyBody := rewriteProxyModelBody(body, serveModelID(req.Model))
+	proxyReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, url+"/v1/chat/completions", bytes.NewReader(proxyBody))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -295,4 +306,26 @@ func (t *TokenAuth) Middleware(next http.Handler) http.Handler {
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("# gateway metrics placeholder\n"))
+}
+
+// serveModelID strips the hf:// prefix CodaEndpoint uses for routing.
+func serveModelID(model string) string {
+	return strings.TrimPrefix(model, "hf://")
+}
+
+func rewriteProxyModelBody(body []byte, servedModel string) []byte {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return body
+	}
+	encoded, err := json.Marshal(servedModel)
+	if err != nil {
+		return body
+	}
+	payload["model"] = encoded
+	out, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return out
 }

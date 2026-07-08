@@ -12,6 +12,7 @@ type BootstrapConfig struct {
 	APIServerURL string
 	CABundle     string
 	JoinToken    string
+	ClusterName  string
 }
 
 // Factory constructs a CapacityProvider for a GPUPool.
