@@ -28,7 +28,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 			log.Printf("cachefill: pull %s: %v", img, err)
 			continue
 		}
-		log.Printf("cachefill: pulled %s", img)
+		if isNydusOCIImage(img) {
+			log.Printf("cachefill: nydus OCI %s registered (runtime pull requires nydus-snapshotter)", img)
+		} else {
+			log.Printf("cachefill: pulled %s", img)
+		}
 		if err := d.warmNydusPrefetch(ctx, img); err != nil {
 			log.Printf("cachefill: nydus prefetch %s: %v", img, err)
 			continue
@@ -39,7 +43,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
+func isNydusOCIImage(image string) bool {
+	return strings.Contains(image, "-nydus")
+}
+
 func (d *Daemon) pullFullBlob(ctx context.Context, image string) error {
+	if isNydusOCIImage(image) {
+		return nil
+	}
 	if d.imagePresent(ctx, image) {
 		return nil
 	}
@@ -84,6 +95,9 @@ func (d *Daemon) imagePresent(ctx context.Context, image string) bool {
 }
 
 func (d *Daemon) warmNydusPrefetch(ctx context.Context, image string) error {
+	if isNydusOCIImage(image) {
+		return nil
+	}
 	if _, err := exec.LookPath("nydus-image"); err != nil {
 		return nil
 	}

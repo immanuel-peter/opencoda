@@ -19,7 +19,6 @@ fi
 : "${CONTROLLER_IMAGE:?set CONTROLLER_IMAGE}"
 : "${GATEWAY_IMAGE:?set GATEWAY_IMAGE}"
 : "${NYDUS_IMAGE:=${FAKEVLLM_IMAGE}-nydus}"
-: "${GATEWAY_IMAGE:?set GATEWAY_IMAGE}"
 
 echo "==> converting fakevllm image to Nydus (requires nydusify in PATH)"
 if command -v nydusify >/dev/null 2>&1; then
@@ -28,6 +27,16 @@ if command -v nydusify >/dev/null 2>&1; then
     --target "$NYDUS_IMAGE"
 else
   echo "nydusify not installed; skipping convert (use pre-built ${NYDUS_IMAGE})"
+fi
+
+echo "==> verifying Nydus image exists in registry"
+repo_tag="${NYDUS_IMAGE#*/}"
+repo="${repo_tag%%:*}"
+tag="${NYDUS_IMAGE##*:}"
+if [[ "$repo" == *"amazonaws.com"* ]]; then
+  aws ecr describe-images --repository-name "$repo" --image-ids imageTag="$tag" --region "$AWS_REGION" >/dev/null
+else
+  echo "skipping registry check for non-ECR image ${NYDUS_IMAGE}"
 fi
 
 export CODA_ENABLE_NODEAGENT=1
@@ -45,17 +54,18 @@ helm upgrade opencoda "$ROOT/charts/opencoda" -n opencoda-system \
   --set controllerManager.engineImage="$NYDUS_IMAGE" \
   --set nodeAgent.enabled=true \
   --set nodeAgent.image="$NODE_AGENT_IMAGE" \
-  --set nodeAgent.images="$NYDUS_IMAGE" \
+  --set nodeAgent.images="${FAKEVLLM_IMAGE},${NYDUS_IMAGE}" \
+  --set spegel.enabled=false \
   --set garage.enabled=false \
   --set dcgmExporter.enabled=false \
   --wait --timeout 10m
 
 kubectl apply -f "$ROOT/test/e2e/fixtures/gpu-smoke.yaml"
 
-echo "==> warming Nydus image via kubelet pull (ECR auth)"
+echo "==> warming base image via kubelet pull (ECR auth)"
 kubectl delete pod nydus-warmup -n default --ignore-not-found --wait=true 2>/dev/null || true
-kubectl run nydus-warmup -n default --restart=Never --image="$NYDUS_IMAGE" \
-  --overrides='{"spec":{"nodeSelector":{"opencoda.dev/gpu":"true"},"tolerations":[{"key":"opencoda.io/gpu","operator":"Exists","effect":"NoSchedule"}],"containers":[{"name":"nydus-warmup","image":"'"$NYDUS_IMAGE"'","command":["sleep","3600"]}]}}'
+kubectl run nydus-warmup -n default --restart=Never --image="$FAKEVLLM_IMAGE" \
+  --overrides='{"spec":{"nodeSelector":{"opencoda.dev/gpu":"true"},"tolerations":[{"key":"opencoda.io/gpu","operator":"Exists","effect":"NoSchedule"}],"containers":[{"name":"nydus-warmup","image":"'"$FAKEVLLM_IMAGE"'","command":["sleep","3600"]}]}}'
 for _ in $(seq 1 60); do
   phase="$(kubectl get pod nydus-warmup -n default -o jsonpath='{.status.phase}' 2>/dev/null || true)"
   if [[ "$phase" == "Running" || "$phase" == "Succeeded" ]]; then
@@ -63,10 +73,25 @@ for _ in $(seq 1 60); do
   fi
   sleep 5
 done
-kubectl get pod nydus-warmup -n default -o wide || true
+kubectl get pod nydus-warmup -n default -o wide
 
 kubectl -n opencoda-system rollout restart daemonset/coda-node-agent
 kubectl -n opencoda-system rollout status daemonset/coda-node-agent --timeout=300s
-kubectl -n opencoda-system logs daemonset/coda-node-agent --tail=100
 
-echo "Nydus cachefill validation launched (check node-agent logs for pull/prefetch)"
+logs="$(kubectl -n opencoda-system logs daemonset/coda-node-agent --tail=200)"
+echo "$logs"
+
+if ! echo "$logs" | grep -q "cachefill: pulled ${FAKEVLLM_IMAGE}\|cachefill: pulled.*coda-fakevllm.*latest"; then
+  echo "expected cachefill pull log for base image ${FAKEVLLM_IMAGE}" >&2
+  exit 1
+fi
+if ! echo "$logs" | grep -q "cachefill: nydus OCI ${NYDUS_IMAGE} registered"; then
+  echo "expected cachefill nydus registration log for ${NYDUS_IMAGE}" >&2
+  exit 1
+fi
+if ! echo "$logs" | grep -q "cachefill: nydus prefetch ${NYDUS_IMAGE} ok"; then
+  echo "expected cachefill nydus prefetch ok for ${NYDUS_IMAGE}" >&2
+  exit 1
+fi
+
+echo "Nydus cachefill validation passed"
