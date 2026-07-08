@@ -52,6 +52,20 @@ helm upgrade opencoda "$ROOT/charts/opencoda" -n opencoda-system \
 
 kubectl apply -f "$ROOT/test/e2e/fixtures/gpu-smoke.yaml"
 
+echo "==> warming Nydus image via kubelet pull (ECR auth)"
+kubectl delete pod nydus-warmup -n default --ignore-not-found --wait=true 2>/dev/null || true
+kubectl run nydus-warmup -n default --restart=Never --image="$NYDUS_IMAGE" \
+  --overrides='{"spec":{"nodeSelector":{"opencoda.dev/gpu":"true"},"tolerations":[{"key":"opencoda.io/gpu","operator":"Exists","effect":"NoSchedule"}],"containers":[{"name":"nydus-warmup","image":"'"$NYDUS_IMAGE"'","command":["sleep","3600"]}]}}'
+for _ in $(seq 1 60); do
+  phase="$(kubectl get pod nydus-warmup -n default -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+  if [[ "$phase" == "Running" || "$phase" == "Succeeded" ]]; then
+    break
+  fi
+  sleep 5
+done
+kubectl get pod nydus-warmup -n default -o wide || true
+
+kubectl -n opencoda-system rollout restart daemonset/coda-node-agent
 kubectl -n opencoda-system rollout status daemonset/coda-node-agent --timeout=300s
 kubectl -n opencoda-system logs daemonset/coda-node-agent --tail=100
 

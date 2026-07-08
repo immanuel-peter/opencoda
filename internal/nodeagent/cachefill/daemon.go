@@ -2,6 +2,7 @@ package cachefill
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -39,6 +40,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 }
 
 func (d *Daemon) pullFullBlob(ctx context.Context, image string) error {
+	if d.imagePresent(ctx, image) {
+		return nil
+	}
 	if _, err := exec.LookPath("nsenter"); err == nil {
 		cmd := exec.CommandContext(ctx, "nsenter", "-t", "1", "-m", "-u", "-i", "-n", "crictl", "pull", image)
 		if err := cmd.Run(); err == nil {
@@ -51,9 +55,32 @@ func (d *Daemon) pullFullBlob(ctx context.Context, image string) error {
 		}
 	}
 	if _, err := exec.LookPath("ctr"); err != nil {
-		return err
+		return fmt.Errorf("image %s not present and no pull tool succeeded", image)
 	}
 	return exec.CommandContext(ctx, "ctr", "-n", "k8s.io", "images", "pull", image).Run()
+}
+
+func (d *Daemon) imagePresent(ctx context.Context, image string) bool {
+	var cmd *exec.Cmd
+	if _, err := exec.LookPath("nsenter"); err == nil {
+		cmd = exec.CommandContext(ctx, "nsenter", "-t", "1", "-m", "-u", "-i", "-n", "crictl", "images")
+	} else if _, err := exec.LookPath("crictl"); err == nil {
+		cmd = exec.CommandContext(ctx, "crictl", "images")
+	} else {
+		return false
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	text := string(out)
+	if strings.Contains(text, image) {
+		return true
+	}
+	if idx := strings.LastIndex(image, "/"); idx >= 0 {
+		return strings.Contains(text, image[idx+1:])
+	}
+	return false
 }
 
 func (d *Daemon) warmNydusPrefetch(ctx context.Context, image string) error {
