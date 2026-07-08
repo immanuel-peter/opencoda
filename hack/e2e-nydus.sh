@@ -30,10 +30,10 @@ else
 fi
 
 echo "==> verifying Nydus image exists in registry"
-repo_tag="${NYDUS_IMAGE#*/}"
-repo="${repo_tag%%:*}"
-tag="${NYDUS_IMAGE##*:}"
-if [[ "$repo" == *"amazonaws.com"* ]]; then
+if [[ "$NYDUS_IMAGE" == *".amazonaws.com/"* ]]; then
+  after_host="${NYDUS_IMAGE#*amazonaws.com/}"
+  repo="${after_host%%:*}"
+  tag="${after_host##*:}"
   aws ecr describe-images --repository-name "$repo" --image-ids imageTag="$tag" --region "$AWS_REGION" >/dev/null
 else
   echo "skipping registry check for non-ECR image ${NYDUS_IMAGE}"
@@ -54,7 +54,7 @@ helm upgrade opencoda "$ROOT/charts/opencoda" -n opencoda-system \
   --set controllerManager.engineImage="$NYDUS_IMAGE" \
   --set nodeAgent.enabled=true \
   --set nodeAgent.image="$NODE_AGENT_IMAGE" \
-  --set nodeAgent.images="${FAKEVLLM_IMAGE},${NYDUS_IMAGE}" \
+  --set nodeAgent.images="${FAKEVLLM_IMAGE}\,${NYDUS_IMAGE}" \
   --set spegel.enabled=false \
   --set garage.enabled=false \
   --set dcgmExporter.enabled=false \
@@ -65,10 +65,10 @@ kubectl apply -f "$ROOT/test/e2e/fixtures/gpu-smoke.yaml"
 echo "==> warming base image via kubelet pull (ECR auth)"
 kubectl delete pod nydus-warmup -n default --ignore-not-found --wait=true 2>/dev/null || true
 kubectl run nydus-warmup -n default --restart=Never --image="$FAKEVLLM_IMAGE" \
-  --overrides='{"spec":{"nodeSelector":{"opencoda.dev/gpu":"true"},"tolerations":[{"key":"opencoda.io/gpu","operator":"Exists","effect":"NoSchedule"}],"containers":[{"name":"nydus-warmup","image":"'"$FAKEVLLM_IMAGE"'","command":["sleep","3600"]}]}}'
+  --overrides='{"spec":{"nodeSelector":{"opencoda.dev/gpu":"true"},"tolerations":[{"key":"opencoda.io/gpu","operator":"Exists","effect":"NoSchedule"}],"containers":[{"name":"nydus-warmup","image":"'"$FAKEVLLM_IMAGE"'"}]}}'
 for _ in $(seq 1 60); do
-  phase="$(kubectl get pod nydus-warmup -n default -o jsonpath='{.status.phase}' 2>/dev/null || true)"
-  if [[ "$phase" == "Running" || "$phase" == "Succeeded" ]]; then
+  image_id="$(kubectl get pod nydus-warmup -n default -o jsonpath='{.status.containerStatuses[0].imageID}' 2>/dev/null || true)"
+  if [[ -n "$image_id" ]]; then
     break
   fi
   sleep 5

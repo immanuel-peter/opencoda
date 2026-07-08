@@ -71,6 +71,18 @@ func (d *Daemon) pullFullBlob(ctx context.Context, image string) error {
 	return exec.CommandContext(ctx, "ctr", "-n", "k8s.io", "images", "pull", image).Run()
 }
 
+func splitImageRef(image string) (repo, tag string, ok bool) {
+	if at := strings.LastIndex(image, "@"); at >= 0 {
+		return image[:at], image[at+1:], true
+	}
+	colon := strings.LastIndex(image, ":")
+	slash := strings.LastIndex(image, "/")
+	if colon <= slash {
+		return "", "", false
+	}
+	return image[:colon], image[colon+1:], true
+}
+
 func (d *Daemon) imagePresent(ctx context.Context, image string) bool {
 	var cmd *exec.Cmd
 	if _, err := exec.LookPath("nsenter"); err == nil {
@@ -83,6 +95,16 @@ func (d *Daemon) imagePresent(ctx context.Context, image string) bool {
 	out, err := cmd.Output()
 	if err != nil {
 		return false
+	}
+	repo, tag, ok := splitImageRef(image)
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if ok && fields[0] == repo && fields[1] == tag {
+			return true
+		}
 	}
 	text := string(out)
 	if strings.Contains(text, image) {
@@ -101,6 +123,9 @@ func (d *Daemon) warmNydusPrefetch(ctx context.Context, image string) error {
 	if _, err := exec.LookPath("nydus-image"); err != nil {
 		return nil
 	}
+	if !isLocalPrefetchSource(image) {
+		return nil
+	}
 	ref := strings.ReplaceAll(image, "/", "_")
 	cacheDir := "/var/cache/opencoda/nydus"
 	_ = os.MkdirAll(cacheDir, 0755)
@@ -111,4 +136,14 @@ func (d *Daemon) warmNydusPrefetch(ctx context.Context, image string) error {
 		"--blob", blob,
 		image,
 	).Run()
+}
+
+func isLocalPrefetchSource(image string) bool {
+	if strings.HasPrefix(image, "/") {
+		return true
+	}
+	if _, err := os.Stat(image); err == nil {
+		return true
+	}
+	return false
 }
