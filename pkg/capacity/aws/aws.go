@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"sort"
@@ -165,7 +166,7 @@ func (p *Provider) Provision(ctx context.Context, offer capacity.Offer) (*capaci
 		InstanceType: types.InstanceType(offer.InstanceType),
 		MinCount:     aws.Int32(1),
 		MaxCount:     aws.Int32(1),
-		UserData:     aws.String(userdata),
+		UserData:     aws.String(base64.StdEncoding.EncodeToString([]byte(userdata))),
 		TagSpecifications: []types.TagSpecification{{
 			ResourceType: types.ResourceTypeInstance,
 			Tags: []types.Tag{
