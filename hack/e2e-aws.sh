@@ -18,6 +18,8 @@ fi
 
 CODA_FAKE_HEALTH="${CODA_FAKE_HEALTH:-0}"
 export CODA_FAKE_HEALTH
+export CODA_ENABLE_NODEAGENT=0
+export CODA_ENGINE_IMAGE="${CODA_ENGINE_IMAGE:-${FAKEVLLM_IMAGE:-}}"
 
 echo "==> ensuring in-cluster aws-credentials secret"
 if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then

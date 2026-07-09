@@ -225,10 +225,28 @@ func (p *Provider) resolveAMI(ctx context.Context) (string, error) {
 	if ami := strings.TrimSpace(p.params["ami"]); ami != "" {
 		return ami, nil
 	}
+	patterns := []string{}
+	if version := strings.TrimSpace(p.params["kubernetesVersion"]); version != "" {
+		patterns = append(patterns, fmt.Sprintf("amazon-eks-gpu-node-%s-*", version))
+	}
+	patterns = append(patterns, "amazon-eks-gpu-node-1.32-*", "amazon-eks-gpu-node-1.31-*", "amazon-eks-gpu-node-*")
+	for _, pattern := range patterns {
+		ami, err := p.latestGPUAMI(ctx, pattern)
+		if err != nil {
+			return "", err
+		}
+		if ami != "" {
+			return ami, nil
+		}
+	}
+	return "", fmt.Errorf("no EKS GPU AMI found in %s", p.region)
+}
+
+func (p *Provider) latestGPUAMI(ctx context.Context, namePattern string) (string, error) {
 	out, err := p.client.DescribeImages(ctx, &ec2.DescribeImagesInput{
 		Owners: []string{"amazon"},
 		Filters: []types.Filter{
-			{Name: aws.String("name"), Values: []string{"amazon-eks-gpu-node-al2023-x86_64-*"}},
+			{Name: aws.String("name"), Values: []string{namePattern}},
 			{Name: aws.String("state"), Values: []string{"available"}},
 			{Name: aws.String("architecture"), Values: []string{"x86_64"}},
 		},
@@ -237,7 +255,7 @@ func (p *Provider) resolveAMI(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if len(out.Images) == 0 {
-		return "", fmt.Errorf("no EKS GPU AMI found in %s", p.region)
+		return "", nil
 	}
 	sort.Slice(out.Images, func(i, j int) bool {
 		return aws.ToString(out.Images[i].CreationDate) > aws.ToString(out.Images[j].CreationDate)

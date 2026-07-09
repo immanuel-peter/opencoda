@@ -37,6 +37,7 @@ if [[ -z "$PROFILE_NAME" ]]; then
 fi
 
 CLUSTER_JSON="$(aws eks describe-cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --output json)"
+K8S_VERSION="$(echo "$CLUSTER_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['cluster']['version'])")"
 CLUSTER_SG="$(echo "$CLUSTER_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['cluster']['resourcesVpcConfig']['clusterSecurityGroupId'])")"
 EXTRA_SGS="$(echo "$CLUSTER_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(','.join(d['cluster']['resourcesVpcConfig'].get('securityGroupIds',[])))")"
 if [[ -n "$EXTRA_SGS" ]]; then
@@ -50,6 +51,7 @@ sed \
   -e "s|region: us-east-1|region: ${AWS_REGION}|" \
   -e "/capacityType: spot/a\\
       clusterName: \"${EKS_CLUSTER_NAME}\"\\
+      kubernetesVersion: \"${K8S_VERSION}\"\\
       nodeInstanceProfile: \"${PROFILE_NAME}\"\\
       securityGroupIds: \"${SECURITY_GROUPS}\"
 " \

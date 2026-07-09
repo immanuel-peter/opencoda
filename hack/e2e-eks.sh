@@ -13,7 +13,7 @@ cd "$ROOT"
 : "${HELM_RELEASE:=opencoda}"
 : "${BUILD_IMAGES:=0}"
 : "${GHCR_USER:=immanuel-peter}"
-: "${CODA_ENGINE_IMAGE:-}"
+: "${CODA_ENGINE_IMAGE:=}"
 : "${CODA_E2E_FIXTURE:=minimal.yaml}"
 : "${CODA_ENABLE_GARAGE:=0}"
 : "${CODA_ENABLE_NODEAGENT:=0}"
@@ -101,6 +101,12 @@ kubectl wait --for=condition=established crd/codaendpoints.opencoda.dev --timeou
 echo "==> installing OpenCoda via Helm"
 # Clear SSA field-manager conflicts from prior kubectl patches before upgrade.
 kubectl -n "$CODA_NAMESPACE" delete deployment coda-controller-manager coda-gateway \
+  --ignore-not-found --wait=true 2>/dev/null || true
+if [[ "$CODA_ENABLE_NODEAGENT" != "1" ]]; then
+  kubectl -n "$CODA_NAMESPACE" delete daemonset coda-node-agent \
+    --ignore-not-found --wait=true 2>/dev/null || true
+fi
+kubectl -n "$CODA_NAMESPACE" delete daemonset spegel \
   --ignore-not-found --wait=true 2>/dev/null || true
 
 if helm status "$HELM_RELEASE" -n "$CODA_NAMESPACE" 2>/dev/null | grep -q pending; then
